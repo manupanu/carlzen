@@ -1,0 +1,10 @@
+services:
+  carlzen:
+    build: .
+    ports:
+      - "8080:80"
+    restart: always
+    # Environment variables are baked into the build for Vite apps.
+    # To use different API keys, you must rebuild the image.
+    environment:
+      - VITE_OPENAI_API_KEY=${VITE_OPENAI_API_KEY}

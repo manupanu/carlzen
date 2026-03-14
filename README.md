@@ -57,6 +57,35 @@
    npm run build
    ```
 
+## 🐳 Docker Deployment
+
+For easy deployment, you can use Docker and Docker Compose.
+
+### Using Docker Compose
+
+1. **Set your API key** in a `.env` file:
+   ```env
+   VITE_OPENAI_API_KEY=your_api_key_here
+   ```
+
+2. **Run with Docker Compose:**
+   ```bash
+   docker-compose up -d --build
+   ```
+   The app will be available at `http://localhost:8080`.
+
+### Manual Docker Build
+
+1. **Build the image:**
+   ```bash
+   docker build -t carlzen .
+   ```
+
+2. **Run the container:**
+   ```bash
+   docker run -d -p 8080:80 carlzen
+   ```
+
 ## 🛠️ Tech Stack
 
 - **Frontend**: React 19 + TypeScript + Vite
