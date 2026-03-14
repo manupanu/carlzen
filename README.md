@@ -1,73 +1,71 @@
-# React + TypeScript + Vite
+# ♟️ CarlZen
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**CarlZen** is a premium, AI-powered chess coaching application designed to help players understand the "why" behind every move. It combines the raw power of **Stockfish 18** with the strategic insights of **GPT-4** to provide a unique learning experience.
 
-Currently, two official plugins are available:
+![CarlZen Screenshot](https://raw.githubusercontent.com/manuel-developer/CarlZen/main/screenshot.png) *(Note: Add actual screenshot URL here later)*
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## ✨ Features
 
-## React Compiler
+- **AI Strategic Coaching**: Streaming feedback from an elite AI coach (GPT-4) explaining the strategic intent of engine moves.
+- **Deep Analysis**: Powered by Stockfish 18 (WASM) running directly in your browser.
+- **Visual Feedback**:
+  - **Evaluation Bar**: Real-time visual representation of the position's balance.
+  - **Best-Move Arrows**: Intelligent arrows pointing to the top engine recommendations.
+  - **Move Highlights**: Visual cues for the last move and kings in check.
+- **Customizable Engine**: Adjust analysis depth on the fly with a dedicated slider.
+- **Full Notation Support**: Accurate Standard Algebraic Notation (SAN) for all moves.
+- **Session Persistence**: Your board state is automatically saved to LocalStorage.
+- **Power User Controls**: Full undo/redo stack and keyboard shortcuts (Cmd/Ctrl + Z/Y).
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 🚀 Getting Started
 
-## Expanding the ESLint configuration
+### Prerequisites
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- [Node.js](https://nodejs.org/) (v18 or higher recommended)
+- An [OpenAI API Key](https://platform.openai.com/api-keys)
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### Installation
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/your-username/CarlZen.git
+   cd CarlZen
+   ```
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+3. **Configure environment variables:**
+   Create a `.env` file in the root directory (or copy from `.env.example`):
+   ```bash
+   cp .env.example .env
+   ```
+   Open `.env` and add your OpenAI API key:
+   ```env
+   VITE_OPENAI_API_KEY=your_api_key_here
+   ```
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+4. **Run the development server:**
+   ```bash
+   npm run dev
+   ```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+5. **Build for production:**
+   ```bash
+   npm run build
+   ```
+
+## 🛠️ Tech Stack
+
+- **Frontend**: React 19 + TypeScript + Vite
+- **Chess Logic**: [chess.js](https://github.com/jhlywa/chess.js)
+- **Board UI**: [react-chessboard](https://github.com/Clariity/react-chessboard)
+- **Chess Engine**: [Stockfish 18 (WASM)](https://github.com/official-stockfish/Stockfish)
+- **AI Feedback**: [OpenAI API](https://openai.com/api/)
+- **Styling**: Vanilla CSS (Premium Glassmorphism Design)
+
+## 📜 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
