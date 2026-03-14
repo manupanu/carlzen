@@ -6,7 +6,7 @@
 
 ## ✨ Features
 
-- **AI Strategic Coaching**: Streaming feedback from an elite AI coach (GPT-4) explaining the strategic intent of engine moves.
+- **AI Strategic Coaching**: Streaming feedback from an elite AI coach (GPT-4o) explaining the strategic intent of engine moves, proxied through a secure backend.
 - **Deep Analysis**: Powered by Stockfish 18 (WASM) running directly in your browser.
 - **Visual Feedback**:
   - **Evaluation Bar**: Real-time visual representation of the position's balance.
@@ -21,7 +21,7 @@
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18 or higher recommended)
+- [Node.js](https://nodejs.org/) (v20 or higher recommended)
 - An [OpenAI API Key](https://platform.openai.com/api-keys)
 
 ### Installation
@@ -47,9 +47,10 @@
    OPENAI_API_KEY=your_api_key_here
    ```
 
-4. **Run the development server:**
+4. **Run the application:**
+   To run both the frontend development server and the backend proxy:
    ```bash
-   npm run dev
+   npm run dev:all
    ```
 
 5. **Build for production:**
@@ -59,13 +60,13 @@
 
 ## 🐳 Docker Deployment
 
-For easy deployment, you can use Docker and Docker Compose.
+For easy deployment, you can use Docker and Docker Compose. This setup bundles the React frontend and the Express backend proxy into a single container.
 
 ### Using Docker Compose
 
 1. **Set your API key** in a `.env` file:
    ```env
-   VITE_OPENAI_API_KEY=your_api_key_here
+   OPENAI_API_KEY=your_api_key_here
    ```
 
 2. **Run with Docker Compose:**
@@ -83,16 +84,17 @@ For easy deployment, you can use Docker and Docker Compose.
 
 2. **Run the container:**
    ```bash
-   docker run -d -p 8080:80 carlzen
+   docker run -d -p 8080:80 -e OPENAI_API_KEY=your_api_key_here carlzen
    ```
 
 ## 🛠️ Tech Stack
 
 - **Frontend**: React 19 + TypeScript + Vite
+- **Backend Proxy**: Node.js + Express (Handles secure OpenAI API requests)
 - **Chess Logic**: [chess.js](https://github.com/jhlywa/chess.js)
 - **Board UI**: [react-chessboard](https://github.com/Clariity/react-chessboard)
 - **Chess Engine**: [Stockfish 18 (WASM)](https://github.com/official-stockfish/Stockfish)
-- **AI Feedback**: [OpenAI API](https://openai.com/api/)
+- **AI Feedback**: [OpenAI API (GPT-4o)](https://openai.com/api/)
 - **Styling**: Vanilla CSS (Premium Glassmorphism Design)
 
 ## 📜 License
