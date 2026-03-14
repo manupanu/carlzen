@@ -11,13 +11,28 @@ RUN npm install
 COPY . .
 RUN npm run build
 
-# Production stage
-FROM nginx:stable-alpine
+# Final stage
+FROM node:20-slim
 
-# Copy built assets from build stage
-COPY --from=build /app/dist /usr/share/nginx/html
+WORKDIR /app
 
-# Expose port 80
+# Install production dependencies for the server
+COPY package*.json ./
+RUN npm install --omit=dev
+
+# Copy server source and built frontend
+COPY server ./server
+COPY --from=build /app/dist ./dist
+
+# We need ts-node to run the server in the container, 
+# or we could transpile it. Let's transpile for better performance.
+RUN npm install -g typescript
+RUN tsc server/index.ts --outDir dist-server --module esnext --target esnext --moduleResolution node --esModuleInterop
+
+# Environment variables
+ENV NODE_ENV=production
+ENV PORT=80
+
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "dist-server/index.js"]

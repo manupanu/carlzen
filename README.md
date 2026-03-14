@@ -44,7 +44,7 @@
    ```
    Open `.env` and add your OpenAI API key:
    ```env
-   VITE_OPENAI_API_KEY=your_api_key_here
+   OPENAI_API_KEY=your_api_key_here
    ```
 
 4. **Run the development server:**
