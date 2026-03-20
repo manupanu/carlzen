@@ -9,6 +9,7 @@ import { BoardControls } from './BoardControls';
 import './App.css';
 
 const LOCAL_STORAGE_KEY = 'carlzen_board_state';
+const AI_COACH_KEY = 'carlzen_ai_coach';
 
 // Convert a CP centipawn value to a 0–100 bar percentage (50 = equal)
 function cpToPercent(cp: number): number {
@@ -38,6 +39,10 @@ function App() {
   // AI coaching
   const [coachAdvice, setCoachAdvice] = useState('');
   const [isCoaching, setIsCoaching] = useState(false);
+  const [aiCoachEnabled, setAiCoachEnabled] = useState(() => {
+    const saved = localStorage.getItem(AI_COACH_KEY);
+    return saved !== null ? saved === 'true' : true;
+  });
 
   // UX
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
@@ -53,10 +58,22 @@ function App() {
   const gameFenRef = useRef(game.fen());
   const abortControllerRef = useRef<AbortController | null>(null);
   const engineDepthRef = useRef(engineDepth);
+  const aiCoachEnabledRef = useRef(aiCoachEnabled);
 
   // Keep refs in sync
   useEffect(() => { gameFenRef.current = game.fen(); }, [game]);
   useEffect(() => { engineDepthRef.current = engineDepth; }, [engineDepth]);
+  useEffect(() => { aiCoachEnabledRef.current = aiCoachEnabled; }, [aiCoachEnabled]);
+
+  // Persist AI coach preference and abort if disabled
+  useEffect(() => {
+    localStorage.setItem(AI_COACH_KEY, String(aiCoachEnabled));
+    if (!aiCoachEnabled) {
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      setCoachAdvice('');
+      setIsCoaching(false);
+    }
+  }, [aiCoachEnabled]);
 
   const fetchCoachingAdvice = useCallback(async (fen: string, move: string) => {
     if (abortControllerRef.current) abortControllerRef.current.abort();
@@ -82,11 +99,11 @@ function App() {
         try {
           const moveObj = gameCopy.move(uciMove);
           setBestMoveSAN(moveObj.san);
-          fetchCoachingAdvice(gameFenRef.current, moveObj.san);
+          if (aiCoachEnabledRef.current) fetchCoachingAdvice(gameFenRef.current, moveObj.san);
         } catch {
           console.error('Invalid move from engine:', uciMove);
           setBestMoveSAN(uciMove);
-          fetchCoachingAdvice(gameFenRef.current, uciMove);
+          if (aiCoachEnabledRef.current) fetchCoachingAdvice(gameFenRef.current, uciMove);
         }
       } else if (msg.type === 'eval') {
         const { cp, mate } = msg.result;
@@ -320,6 +337,8 @@ function App() {
         moveHistory={moveHistory}
         engineDepth={engineDepth}
         setEngineDepth={setEngineDepth}
+        aiCoachEnabled={aiCoachEnabled}
+        setAiCoachEnabled={setAiCoachEnabled}
         coachProps={{
           evaluation,
           evalPercent,

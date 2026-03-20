@@ -10,6 +10,8 @@ interface SidebarProps {
   moveHistory: string[];
   engineDepth: number;
   setEngineDepth: (d: number) => void;
+  aiCoachEnabled: boolean;
+  setAiCoachEnabled: (v: boolean) => void;
   coachProps: React.ComponentProps<typeof CoachPanel>;
 }
 
@@ -22,6 +24,8 @@ export function Sidebar({
   moveHistory,
   engineDepth,
   setEngineDepth,
+  aiCoachEnabled,
+  setAiCoachEnabled,
   coachProps,
 }: SidebarProps) {
   return (
@@ -96,10 +100,20 @@ export function Sidebar({
 
       {/* AI Coach */}
       <div className="panel-content coach-section">
-        <h3>
-          <FaRobot /> AI Coach
-        </h3>
-        <CoachPanel {...coachProps} />
+        <div className="coach-header-row">
+          <h3>
+            <FaRobot /> AI Coach
+          </h3>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={aiCoachEnabled}
+              onChange={(e) => setAiCoachEnabled(e.target.checked)}
+            />
+            <span className="toggle-slider" />
+          </label>
+        </div>
+        {aiCoachEnabled && <CoachPanel {...coachProps} />}
       </div>
     </div>
   );
