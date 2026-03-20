@@ -42,9 +42,15 @@
    ```bash
    cp .env.example .env
    ```
-   Open `.env` and add your OpenAI API key:
+   Open `.env` and add your API key and optionally configure the model and endpoint:
    ```env
    OPENAI_API_KEY=your_api_key_here
+
+   # Optional: override the model (default: gpt-4o)
+   # AI_MODEL=gpt-4o
+
+   # Optional: use an OpenAI-compatible provider such as Groq
+   # AI_BASE_URL=https://api.groq.com/openai/v1
    ```
 
 4. **Run the application:**
@@ -67,6 +73,12 @@ For easy deployment, you can use Docker and Docker Compose. This setup bundles t
 1. **Set your API key** in a `.env` file:
    ```env
    OPENAI_API_KEY=your_api_key_here
+
+   # Optional: override the model (default: gpt-4o)
+   # AI_MODEL=gpt-4o
+
+   # Optional: use an OpenAI-compatible provider such as Groq
+   # AI_BASE_URL=https://api.groq.com/openai/v1
    ```
 
 2. **Run with Docker Compose:**

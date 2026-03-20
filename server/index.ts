@@ -18,7 +18,10 @@ app.use(express.json());
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  ...(process.env.AI_BASE_URL ? { baseURL: process.env.AI_BASE_URL } : {}),
 });
+
+const aiModel = process.env.AI_MODEL || 'gpt-4o';
 
 // AI Coaching endpoint
 app.post('/api/coach', async (req, res) => {
@@ -30,7 +33,7 @@ app.post('/api/coach', async (req, res) => {
 
   try {
     const stream = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: aiModel,
       messages: [
         {
           role: 'system',
