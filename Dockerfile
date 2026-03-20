@@ -29,8 +29,8 @@ COPY --from=build /app/dist-server ./dist-server
 
 # Environment variables
 ENV NODE_ENV=production
-ENV PORT=80
+ENV PORT=3000
 
-EXPOSE 80
+EXPOSE 3000
 
 CMD ["node", "dist-server/index.js"]
