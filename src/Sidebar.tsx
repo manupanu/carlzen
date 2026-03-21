@@ -1,10 +1,9 @@
-import { FaChessBoard, FaRobot, FaTrash, FaCheck } from 'react-icons/fa';
+import { FaChessBoard, FaRobot, FaTrash } from 'react-icons/fa';
 import { CoachPanel } from './CoachPanel';
 
 interface SidebarProps {
   fenInput: string;
   setFenInput: (v: string) => void;
-  onImportFen: () => void;
   onReset: () => void;
   fenError: string;
   moveHistory: string[];
@@ -18,7 +17,6 @@ interface SidebarProps {
 export function Sidebar({
   fenInput,
   setFenInput,
-  onImportFen,
   onReset,
   fenError,
   moveHistory,
@@ -31,7 +29,7 @@ export function Sidebar({
   return (
     <div className="sidebar glass-panel">
       {/* Header */}
-      <div className="panel-content header">
+      <div className="header">
         <img src="/favicon.svg" alt="CarlZen Logo" className="logo" />
         <h1>CarlZen</h1>
       </div>
@@ -48,12 +46,8 @@ export function Sidebar({
             value={fenInput}
             onChange={(e) => setFenInput(e.target.value)}
             className="premium-input"
-            onKeyDown={(e) => e.key === 'Enter' && onImportFen()}
           />
           {fenError && <p className="error-text">{fenError}</p>}
-          <button className="btn-primary load-btn" onClick={onImportFen}>
-            <FaCheck /> Load Position
-          </button>
           <button className="btn-secondary reset-btn" onClick={onReset}>
             <FaTrash /> Reset Board
           </button>
@@ -102,7 +96,7 @@ export function Sidebar({
       <div className="panel-content coach-section">
         <div className="coach-header-row">
           <h3>
-            <FaRobot /> AI Coach
+            <FaRobot /> AI Summary
           </h3>
           <label className="toggle-switch">
             <input
@@ -113,7 +107,7 @@ export function Sidebar({
             <span className="toggle-slider" />
           </label>
         </div>
-        {aiCoachEnabled && <CoachPanel {...coachProps} />}
+        <CoachPanel {...coachProps} />
       </div>
     </div>
   );

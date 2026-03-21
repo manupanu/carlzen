@@ -2,13 +2,13 @@ import { FaRobot } from 'react-icons/fa';
 
 interface CoachPanelProps {
   evaluation: string;
-  evalPercent: number;        // 0–100, 50 = equal
   bestMoveSAN: string;
   coachAdvice: string;
   isCoaching: boolean;
   isEngineReady: boolean;
   gameStatus: string;         // '', 'check', 'checkmate', 'stalemate', 'draw'
   makeBestMove: () => void;
+  isAiSummaryEnabled: boolean;
 }
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
@@ -20,13 +20,13 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
 
 export function CoachPanel({
   evaluation,
-  evalPercent,
   bestMoveSAN,
   coachAdvice,
   isCoaching,
   isEngineReady,
   gameStatus,
   makeBestMove,
+  isAiSummaryEnabled,
 }: CoachPanelProps) {
   const statusInfo = STATUS_LABELS[gameStatus];
 
@@ -48,15 +48,9 @@ export function CoachPanel({
         <p className="pulse-text" style={{ marginTop: '12px' }}>Game over — reset or load a new position.</p>
       ) : bestMoveSAN ? (
         <>
-          {/* Eval bar */}
-          <div className="eval-bar-row">
-            <div className="eval-bar">
-              <div
-                className="eval-bar-fill"
-                style={{ width: `${evalPercent}%` }}
-              />
-            </div>
-            <span className="eval-label">{evaluation}</span>
+          {/* Eval badge */}
+          <div className="eval-text-row">
+            <span className="eval-label">Evaluation: {evaluation}</span>
           </div>
 
           <p className="best-move-line">
@@ -69,12 +63,14 @@ export function CoachPanel({
           >
             <FaRobot /> Play Best Move
           </button>
-          <div className="ai-advice-container">
-            <p className="ai-advice-text">
-              {coachAdvice}
-              {isCoaching && <span className="cursor-blink">|</span>}
-            </p>
-          </div>
+          {isAiSummaryEnabled && (
+            <div className="ai-advice-container">
+              <p className="ai-advice-text">
+                {coachAdvice}
+                {isCoaching && <span className="cursor-blink">|</span>}
+              </p>
+            </div>
+          )}
         </>
       ) : (
         <p className="pulse-text">Analyzing position with Stockfish 18…</p>

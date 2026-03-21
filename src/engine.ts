@@ -12,6 +12,8 @@ export class Engine {
   private stockfish: Worker;
   private onMessage: (msg: EngineMessage) => void;
   private isReady = false;
+  private isSearching = false;
+  private pendingGo: { fen: string; depth: number } | null = null;
   private currentFen = '';
 
   constructor(onMessage: (msg: EngineMessage) => void) {
@@ -33,11 +35,20 @@ export class Engine {
         this.isReady = true;
         this.onMessage({ type: 'ready' });
       } else if (line.startsWith('bestmove')) {
+        this.isSearching = false;
         const match = line.match(/^bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
-        if (match) {
+        
+        if (this.pendingGo) {
+          const next = this.pendingGo;
+          this.pendingGo = null;
+          this.evaluatePosition(next.fen, next.depth);
+        } else if (match) {
           this.onMessage({ type: 'bestmove', data: match[1] });
         }
       } else if (line.startsWith('info depth')) {
+        // If we have a pending go, we are technically stopping, so we can ignore stale evals
+        if (this.pendingGo) return;
+        
         const scoreMatch = line.match(/score (cp|mate) (-?\d+)/);
         if (scoreMatch) {
           const type = scoreMatch[1];
@@ -45,11 +56,9 @@ export class Engine {
           const isBlackToMove = this.currentFen.includes(' b ');
 
           if (type === 'cp') {
-            // Normalize to always be from white's perspective
             const absoluteCp = isBlackToMove ? -val : val;
             this.onMessage({ type: 'eval', result: { cp: absoluteCp } });
           } else {
-            // mate: positive = side to move mates, normalize to white's perspective
             const absoluteMate = isBlackToMove ? -val : val;
             this.onMessage({ type: 'eval', result: { mate: absoluteMate } });
           }
@@ -62,13 +71,24 @@ export class Engine {
 
   public evaluatePosition(fen: string, depth: number = 18) {
     if (!this.isReady) return;
+    
+    if (this.isSearching) {
+      this.pendingGo = { fen, depth };
+      this.stockfish.postMessage('stop');
+      return;
+    }
+
+    this.isSearching = true;
     this.currentFen = fen;
     this.stockfish.postMessage(`position fen ${fen}`);
     this.stockfish.postMessage(`go depth ${depth}`);
   }
 
   public stop() {
-    this.stockfish.postMessage('stop');
+    if (this.isSearching) {
+      this.pendingGo = null; // Drop any queued evaluation
+      this.stockfish.postMessage('stop');
+    }
   }
 
   public quit() {

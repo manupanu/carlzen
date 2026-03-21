@@ -33,15 +33,37 @@
   aspect-ratio: 1;
 }
 
+.board-with-eval {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  width: 100%;
+  height: 100%;
+}
+
+.vertical-eval-bar {
+  width: 24px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 6px;
+  border: 1px solid var(--panel-border);
+  overflow: hidden;
+  display: flex;
+}
+
+.vertical-eval-fill {
+  width: 100%;
+  background: var(--text-primary);
+  transition: height 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 /* ── Sidebar Header ──────────────────────────────────────── */
 
 .header {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding-top: 32px;
+  padding: 32px 24px 24px 24px;
   margin-bottom: 8px;
-  padding-bottom: 24px;
   border-bottom: 1px solid var(--panel-border);
 }
 
@@ -58,6 +80,7 @@
   letter-spacing: -0.5px;
   background: linear-gradient(135deg, #ffffff 0%, #a5b4fc 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
@@ -262,6 +285,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 16px;
 }
 
 .coach-header-row h3 {
@@ -416,38 +440,19 @@
 
 /* ── Evaluation Bar ──────────────────────────────────────── */
 
-.eval-bar-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.eval-bar {
-  flex: 1;
-  height: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  overflow: hidden;
-  position: relative;
-}
-
-.eval-bar-fill {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  background: linear-gradient(90deg, #4f8bf9, #a5b4fc);
-  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+.eval-text-row {
+  margin-bottom: 8px;
 }
 
 .eval-label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   font-family: 'Courier New', monospace;
   color: var(--text-primary);
-  min-width: 50px;
-  text-align: right;
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
 }
 
 /* ── Depth Control ───────────────────────────────────────── */
@@ -579,4 +584,90 @@
   .fen-display-row {
     margin-top: 20px;
   }
+}
+
+/* ── Session Tabs ────────────────────────────────────────── */
+
+.tabs-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 80vh;
+  margin-bottom: 24px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--panel-border);
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.tab.active {
+  background: var(--accent-color);
+  color: #fff;
+  border-color: var(--accent-color);
+}
+
+.tab-name {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-close {
+  background: none;
+  border: none;
+  color: inherit;
+  padding: 0;
+  opacity: 0.6;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.tab-close:hover {
+  opacity: 1;
+}
+
+.tab-add {
+  background: transparent;
+  border: 1px dashed var(--panel-border);
+  color: var(--text-secondary);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.tab-add:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  border-color: var(--text-primary);
 }

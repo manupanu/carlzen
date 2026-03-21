@@ -6,29 +6,80 @@ import { getCoachFeedback } from './ai';
 import { FaCopy } from 'react-icons/fa';
 import { Sidebar } from './Sidebar';
 import { BoardControls } from './BoardControls';
+import { SessionTabs, type Session } from './SessionTabs';
 import './App.css';
 
-const LOCAL_STORAGE_KEY = 'carlzen_board_state';
 const AI_COACH_KEY = 'carlzen_ai_coach';
 
 // Convert a CP centipawn value to a 0–100 bar percentage (50 = equal)
 function cpToPercent(cp: number): number {
-  // sigmoid-like mapping: ±500cp ≈ ±90% advantage
   const capped = Math.max(-1000, Math.min(1000, cp));
   return 50 + (capped / 1000) * 45;
 }
 
 function App() {
-  const [game, setGame] = useState(() => {
-    const savedFen = localStorage.getItem(LOCAL_STORAGE_KEY);
-    return savedFen ? new Chess(savedFen) : new Chess();
+  // Session State Manage
+  const [sessions, setSessions] = useState<Session[]>(() => {
+    const saved = localStorage.getItem('carlzen_sessions');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.length > 0) return parsed;
+      } catch {}
+    }
+    // Fall back to old local storage logic for migration if needed
+    const oldSavedFen = localStorage.getItem('carlzen_board_state');
+    return [{ 
+      id: Date.now().toString(36), 
+      name: 'Game 1', 
+      fen: oldSavedFen || new Chess().fen(), 
+      orientation: 'white',
+      undoStack: [], 
+      redoStack: [] 
+    }];
   });
+
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
+    const saved = localStorage.getItem('carlzen_active_session');
+    return saved || '';
+  });
+
+  // Ensure valid active ID
+  useEffect(() => {
+    if (!sessions.find(s => s.id === activeSessionId)) {
+      setActiveSessionId(sessions[0].id);
+    }
+  }, [sessions, activeSessionId]);
+
+  // Persist sessions
+  useEffect(() => {
+    localStorage.setItem('carlzen_sessions', JSON.stringify(sessions));
+    localStorage.setItem('carlzen_active_session', activeSessionId);
+  }, [sessions, activeSessionId]);
+
+  const activeSession = useMemo(() => {
+    const found = sessions.find(s => s.id === activeSessionId) || sessions[0];
+    // Migration: ensure orientation exists
+    if (!found.orientation) found.orientation = 'white';
+    return found;
+  }, [sessions, activeSessionId]);
+
+  // Derived state for current tab
+  const game = useMemo(() => new Chess(activeSession.fen), [activeSession.fen]);
+  const undoStack = activeSession.undoStack;
+  const redoStack = activeSession.redoStack;
+  const lastMove = activeSession.lastMove || null;
+  const boardOrientation = activeSession.orientation || 'white';
+
+  const updateActiveSession = useCallback((updater: (s: Session) => Session) => {
+    setSessions(prev => prev.map(s => s.id === activeSessionId ? updater(s) : s));
+  }, [activeSessionId]);
 
   // FEN import
   const [fenInput, setFenInput] = useState('');
   const [fenError, setFenError] = useState('');
 
-  // Engine & analysis
+  // Engine & analysis (Local to App, but could reset on tab switch)
   const [isEngineReady, setIsEngineReady] = useState(false);
   const [bestMoveUCI, setBestMoveUCI] = useState('');
   const [bestMoveSAN, setBestMoveSAN] = useState('');
@@ -45,14 +96,7 @@ function App() {
   });
 
   // UX
-  const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
   const [copied, setCopied] = useState(false);
-  const [lastMove, setLastMove] = useState<{ from: string; to: string } | null>(null);
-
-  // Undo/redo: each entry is the FEN *before* the move and the SAN of the move played
-  interface HistEntry { fen: string; san: string; }
-  const [undoStack, setUndoStack] = useState<HistEntry[]>([]);
-  const [redoStack, setRedoStack] = useState<HistEntry[]>([]);
 
   const engineRef = useRef<Engine | null>(null);
   const gameFenRef = useRef(game.fen());
@@ -60,12 +104,10 @@ function App() {
   const engineDepthRef = useRef(engineDepth);
   const aiCoachEnabledRef = useRef(aiCoachEnabled);
 
-  // Keep refs in sync
   useEffect(() => { gameFenRef.current = game.fen(); }, [game]);
   useEffect(() => { engineDepthRef.current = engineDepth; }, [engineDepth]);
   useEffect(() => { aiCoachEnabledRef.current = aiCoachEnabled; }, [aiCoachEnabled]);
 
-  // Persist AI coach preference and abort if disabled
   useEffect(() => {
     localStorage.setItem(AI_COACH_KEY, String(aiCoachEnabled));
     if (!aiCoachEnabled) {
@@ -86,7 +128,6 @@ function App() {
     setIsCoaching(false);
   }, []);
 
-  // Initialize engine once
   useEffect(() => {
     engineRef.current = new Engine((msg) => {
       if (msg.type === 'ready') {
@@ -118,14 +159,11 @@ function App() {
         }
       }
     });
-
     return () => engineRef.current?.quit();
   }, [fetchCoachingAdvice]);
 
   // Re-analyse whenever position changes
   useEffect(() => {
-    localStorage.setItem(LOCAL_STORAGE_KEY, game.fen());
-
     if (engineRef.current) {
       engineRef.current.stop();
       setBestMoveUCI('');
@@ -143,7 +181,6 @@ function App() {
     }
   }, [game]);
 
-  // When depth changes, immediately trigger a re-analysis
   useEffect(() => {
     if (!isEngineReady || !engineRef.current) return;
     engineRef.current.stop();
@@ -158,27 +195,68 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engineDepth]);
 
-  // ── Handlers ──────────────────────────────────────────────
+  // ── Tab Handlers ──────────────────────────────────────────
 
-  const handleUndo = () => {
+  const handleAddTab = () => {
+    const newId = Date.now().toString(36);
+    setSessions(prev => [
+      ...prev,
+      { 
+        id: newId, 
+        name: `Game ${prev.length + 1}`, 
+        fen: new Chess().fen(), 
+        orientation: 'white',
+        undoStack: [], 
+        redoStack: [] 
+      }
+    ]);
+    setActiveSessionId(newId);
+  };
+
+  const handleCloseTab = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (sessions.length <= 1) return;
+    setSessions(prev => {
+      const filtered = prev.filter(s => s.id !== id);
+      if (activeSessionId === id && filtered.length > 0) {
+        setActiveSessionId(filtered[filtered.length - 1].id);
+      }
+      return filtered;
+    });
+  };
+
+  const handleRenameTab = (id: string, newName: string) => {
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, name: newName } : s));
+  };
+
+  // ── Game Handlers ─────────────────────────────────────────
+
+  const handleUndo = useCallback(() => {
     if (undoStack.length === 0) return;
     const entry = undoStack[undoStack.length - 1];
-    setRedoStack((prev) => [{ fen: game.fen(), san: entry.san }, ...prev]);
-    setUndoStack((prev) => prev.slice(0, -1));
-    setLastMove(null);
-    setGame(new Chess(entry.fen));
-  };
+    const currentFen = gameFenRef.current;
+    updateActiveSession(s => ({
+      ...s,
+      fen: entry.fen,
+      undoStack: s.undoStack.slice(0, -1),
+      redoStack: [{ fen: currentFen, san: entry.san }, ...s.redoStack],
+      lastMove: null
+    }));
+  }, [undoStack, updateActiveSession]);
 
-  const handleRedo = () => {
+  const handleRedo = useCallback(() => {
     if (redoStack.length === 0) return;
     const entry = redoStack[0];
-    setUndoStack((prev) => [...prev, { fen: game.fen(), san: entry.san }]);
-    setRedoStack((prev) => prev.slice(1));
-    setLastMove(null);
-    setGame(new Chess(entry.fen));
-  };
+    const currentFen = gameFenRef.current;
+    updateActiveSession(s => ({
+      ...s,
+      fen: entry.fen,
+      undoStack: [...s.undoStack, { fen: currentFen, san: entry.san }],
+      redoStack: s.redoStack.slice(1),
+      lastMove: null
+    }));
+  }, [redoStack, updateActiveSession]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const isMac = navigator.platform.toUpperCase().includes('MAC');
@@ -189,34 +267,47 @@ function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, undoStack, redoStack]);
+  }, [handleUndo, handleRedo]);
 
   const handleFlip = useCallback(() => {
-    setBoardOrientation((prev) => (prev === 'white' ? 'black' : 'white'));
-  }, []);
+    updateActiveSession(s => ({
+      ...s,
+      orientation: s.orientation === 'white' ? 'black' : 'white'
+    }));
+  }, [updateActiveSession]);
 
   const handleReset = () => {
-    setUndoStack([]);
-    setRedoStack([]);
+    updateActiveSession(s => ({
+      ...s,
+      fen: new Chess().fen(),
+      undoStack: [],
+      redoStack: [],
+      lastMove: null
+    }));
     setFenError('');
-    setLastMove(null);
-    setGame(new Chess());
   };
 
-  const handleImportFen = () => {
-    setFenError('');
+  useEffect(() => {
+    const trimmed = fenInput.trim();
+    if (!trimmed) return;
     try {
-      const newGame = new Chess(fenInput.trim());
-      setUndoStack([]);
-      setRedoStack([]);
-      setLastMove(null);
-      setGame(newGame);
-      setFenInput('');
+      const newGame = new Chess(trimmed);
+      const timer = setTimeout(() => {
+        updateActiveSession(s => ({
+          ...s,
+          fen: newGame.fen(),
+          undoStack: [],
+          redoStack: [],
+          lastMove: null
+        }));
+        setFenError('');
+        setFenInput('');
+      }, 500);
+      return () => clearTimeout(timer);
     } catch {
-      setFenError('Invalid FEN string — please check and try again.');
+      // not a valid FEN yet
     }
-  };
+  }, [fenInput, updateActiveSession]);
 
   const handleCopyFen = () => {
     navigator.clipboard.writeText(game.fen());
@@ -226,18 +317,21 @@ function App() {
 
   const makeBestMove = useCallback(() => {
     if (!bestMoveUCI) return;
-    const currentFen = game.fen();
+    const currentFen = gameFenRef.current;
     const gameCopy = new Chess(currentFen);
     try {
       const moveObj = gameCopy.move(bestMoveUCI);
-      setUndoStack((prev) => [...prev, { fen: currentFen, san: moveObj.san }]);
-      setRedoStack([]);
-      setLastMove({ from: moveObj.from, to: moveObj.to });
-      setGame(gameCopy);
+      updateActiveSession(s => ({
+        ...s,
+        fen: gameCopy.fen(),
+        undoStack: [...s.undoStack, { fen: currentFen, san: moveObj.san }],
+        redoStack: [],
+        lastMove: { from: moveObj.from, to: moveObj.to }
+      }));
     } catch (e) {
       console.error('Failed to make best move:', bestMoveUCI, e);
     }
-  }, [bestMoveUCI, game]);
+  }, [bestMoveUCI, updateActiveSession]);
 
   const onDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }) => {
@@ -247,24 +341,23 @@ function App() {
       try {
         const move = gameCopy.move({ from: sourceSquare, to: targetSquare, promotion: 'q' });
         if (!move) return false;
-        setUndoStack((prev) => [...prev, { fen: currentFen, san: move.san }]);
-        setRedoStack([]);
-        setLastMove({ from: move.from, to: move.to });
-        setGame(gameCopy);
+        updateActiveSession(s => ({
+          ...s,
+          fen: gameCopy.fen(),
+          undoStack: [...s.undoStack, { fen: currentFen, san: move.san }],
+          redoStack: [],
+          lastMove: { from: move.from, to: move.to }
+        }));
         return true;
       } catch {
         return false;
       }
     },
-    []
+    [updateActiveSession]
   );
 
-  // ── Derived state ──────────────────────────────────────────
-
-  // Move history from undo stack (survives FEN imports)
   const moveHistory = useMemo(() => undoStack.map((e) => e.san), [undoStack]);
 
-  // Game status: checkmate / stalemate / draw / check / ''
   const gameStatus = useMemo(() => {
     if (game.isCheckmate()) return 'checkmate';
     if (game.isStalemate()) return 'stalemate';
@@ -273,7 +366,6 @@ function App() {
     return '';
   }, [game]);
 
-  // Highlight last-move squares and king if in check
   const squareStyles = useMemo(() => {
     const styles: Record<string, React.CSSProperties> = {};
     if (lastMove) {
@@ -281,9 +373,8 @@ function App() {
       styles[lastMove.to]   = { backgroundColor: 'rgba(255, 255, 100, 0.55)' };
     }
     if (game.isCheck()) {
-      // Find the king in check
       const board = game.board();
-      const turn = game.turn(); // 'w' | 'b'
+      const turn = game.turn();
       for (const row of board) {
         for (const sq of row) {
           if (sq && sq.type === 'k' && sq.color === turn) {
@@ -295,7 +386,6 @@ function App() {
     return styles;
   }, [lastMove, game]);
 
-  // Best move arrow: parse UCI "e2e4" → [{startSquare:'e2', endSquare:'e4'}]
   const arrows = useMemo(() => {
     if (!bestMoveUCI || bestMoveUCI.length < 4) return [];
     return [{ 
@@ -309,7 +399,7 @@ function App() {
     () => (
       <Chessboard
         options={{
-          id: 'BasicBoard',
+          id: `board-${activeSessionId}`,
           position: game.fen(),
           boardOrientation,
           onPieceDrop: onDrop,
@@ -323,7 +413,7 @@ function App() {
         }}
       />
     ),
-    [game, boardOrientation, onDrop, squareStyles, arrows]
+    [activeSessionId, game, boardOrientation, onDrop, squareStyles, arrows]
   );
 
   return (
@@ -331,7 +421,6 @@ function App() {
       <Sidebar
         fenInput={fenInput}
         setFenInput={setFenInput}
-        onImportFen={handleImportFen}
         onReset={handleReset}
         fenError={fenError}
         moveHistory={moveHistory}
@@ -341,17 +430,26 @@ function App() {
         setAiCoachEnabled={setAiCoachEnabled}
         coachProps={{
           evaluation,
-          evalPercent,
           bestMoveSAN,
           coachAdvice,
           isCoaching,
           isEngineReady,
           gameStatus,
           makeBestMove,
+          isAiSummaryEnabled: aiCoachEnabled,
         }}
       />
 
       <div className="main-board glass-panel">
+        <SessionTabs 
+          sessions={sessions}
+          activeId={activeSessionId}
+          onSelect={setActiveSessionId}
+          onAdd={handleAddTab}
+          onClose={handleCloseTab}
+          onRename={handleRenameTab}
+        />
+        
         <BoardControls
           bestMoveSAN={bestMoveSAN}
           evaluation={evaluation}
@@ -360,7 +458,20 @@ function App() {
           onRedo={handleRedo}
           onFlip={handleFlip}
         />
-        <div className="board-wrapper">{memoizedChessboard}</div>
+        <div className="board-wrapper">
+          <div className="board-with-eval">
+            <div 
+              className="vertical-eval-bar" 
+              style={{ flexDirection: boardOrientation === 'black' ? 'column' : 'column-reverse' }}
+            >
+              <div
+                className="vertical-eval-fill"
+                style={{ height: `${evalPercent}%` }}
+              />
+            </div>
+            {memoizedChessboard}
+          </div>
+        </div>
         <div className="fen-display-row">
           <input
             type="text"
