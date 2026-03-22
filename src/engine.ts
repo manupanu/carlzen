@@ -1,6 +1,8 @@
 export interface EvalResult {
   cp?: number;       // centipawns (absolute, from white's perspective)
   mate?: number;     // positive = white mates, negative = black mates
+  multipv?: number;  // which PV line this is
+  pv?: string[];     // array of moves in UCI format
 }
 
 export type EngineMessage =
@@ -32,6 +34,7 @@ export class Engine {
       if (typeof line !== 'string') return;
 
       if (line === 'uciok') {
+        this.stockfish.postMessage('setoption name MultiPV value 3');
         this.isReady = true;
         this.onMessage({ type: 'ready' });
       } else if (line.startsWith('bestmove')) {
@@ -54,14 +57,19 @@ export class Engine {
           const type = scoreMatch[1];
           const val = parseInt(scoreMatch[2], 10);
           const isBlackToMove = this.currentFen.includes(' b ');
+          const absoluteScore = isBlackToMove ? -val : val;
 
-          if (type === 'cp') {
-            const absoluteCp = isBlackToMove ? -val : val;
-            this.onMessage({ type: 'eval', result: { cp: absoluteCp } });
-          } else {
-            const absoluteMate = isBlackToMove ? -val : val;
-            this.onMessage({ type: 'eval', result: { mate: absoluteMate } });
-          }
+          const multipvMatch = line.match(/multipv (\d+)/);
+          const multipv = multipvMatch ? parseInt(multipvMatch[1], 10) : 1;
+
+          const pvMatch = line.match(/\bpv\s+(.*)$/);
+          const pv = pvMatch ? pvMatch[1].trim().split(' ') : [];
+
+          const result: EvalResult = { multipv, pv };
+          if (type === 'cp') result.cp = absoluteScore;
+          else result.mate = absoluteScore;
+
+          this.onMessage({ type: 'eval', result });
         }
       }
     };

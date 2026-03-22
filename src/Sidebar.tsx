@@ -42,7 +42,7 @@ export function Sidebar({
         <div className="input-group">
           <input
             type="text"
-            placeholder="Paste FEN here..."
+            placeholder="Paste FEN or PGN here..."
             value={fenInput}
             onChange={(e) => setFenInput(e.target.value)}
             className="premium-input"

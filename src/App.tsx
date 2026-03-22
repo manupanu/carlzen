@@ -86,6 +86,7 @@ function App() {
   const [evaluation, setEvaluation] = useState('');
   const [evalPercent, setEvalPercent] = useState(50);
   const [engineDepth, setEngineDepth] = useState(18);
+  const [multiPvs, setMultiPvs] = useState<Array<{ multipv: number, pv: string[] }>>([]);
 
   // AI coaching
   const [coachAdvice, setCoachAdvice] = useState('');
@@ -97,6 +98,7 @@ function App() {
 
   // UX
   const [copied, setCopied] = useState(false);
+  const [copiedPgn, setCopiedPgn] = useState(false);
 
   const engineRef = useRef<Engine | null>(null);
   const gameFenRef = useRef(game.fen());
@@ -122,6 +124,13 @@ function App() {
     abortControllerRef.current = new AbortController();
     setIsCoaching(true);
     setCoachAdvice('');
+    
+    if (!navigator.onLine) {
+      setCoachAdvice('AI Coach is unavailable offline. Please rely on local Stockfish evaluation.');
+      setIsCoaching(false);
+      return;
+    }
+
     await getCoachFeedback(fen, move, (chunk) => {
       setCoachAdvice((prev) => prev + chunk);
     }, abortControllerRef.current.signal);
@@ -147,15 +156,28 @@ function App() {
           if (aiCoachEnabledRef.current) fetchCoachingAdvice(gameFenRef.current, uciMove);
         }
       } else if (msg.type === 'eval') {
-        const { cp, mate } = msg.result;
-        if (mate !== undefined) {
-          const color = mate > 0 ? 'White' : 'Black';
-          setEvaluation(`Mate in ${Math.abs(mate)} for ${color}`);
-          setEvalPercent(mate > 0 ? 98 : 2);
-        } else if (cp !== undefined) {
-          const evalStr = (cp / 100).toFixed(2);
-          setEvaluation(cp > 0 ? `+${evalStr}` : evalStr);
-          setEvalPercent(cpToPercent(cp));
+        const { cp, mate, multipv, pv } = msg.result;
+
+        if (pv && multipv) {
+          setMultiPvs(prev => {
+            const next = [...prev];
+            const idx = next.findIndex(p => p.multipv === multipv);
+            if (idx >= 0) next[idx] = { multipv, pv };
+            else next.push({ multipv, pv });
+            return next;
+          });
+        }
+
+        if (multipv === 1 || !multipv) {
+          if (mate !== undefined) {
+            const color = mate > 0 ? 'White' : 'Black';
+            setEvaluation(`Mate in ${Math.abs(mate)} for ${color}`);
+            setEvalPercent(mate > 0 ? 98 : 2);
+          } else if (cp !== undefined) {
+            const evalStr = (cp / 100).toFixed(2);
+            setEvaluation(cp > 0 ? `+${evalStr}` : evalStr);
+            setEvalPercent(cpToPercent(cp));
+          }
         }
       }
     });
@@ -171,6 +193,7 @@ function App() {
       setCoachAdvice('');
       setEvaluation('');
       setEvalPercent(50);
+      setMultiPvs([]);
       if (abortControllerRef.current) abortControllerRef.current.abort();
 
       const timerId = setTimeout(() => {
@@ -188,6 +211,7 @@ function App() {
     setBestMoveSAN('');
     setEvaluation('');
     setEvalPercent(50);
+    setMultiPvs([]);
     const timerId = setTimeout(() => {
       engineRef.current?.evaluatePosition(gameFenRef.current, engineDepth);
     }, 300);
@@ -291,21 +315,50 @@ function App() {
     const trimmed = fenInput.trim();
     if (!trimmed) return;
     try {
-      const newGame = new Chess(trimmed);
+      const isPgn = trimmed.startsWith('1.') || trimmed.includes('[Event');
+      const newGame = new Chess();
+      let initFen = newGame.fen();
+      let newUndoStack: {fen: string, san: string}[] = [];
+      let lastMoveObj: {from: string; to: string} | null = null;
+      
+      if (isPgn) {
+        newGame.loadPgn(trimmed);
+        const history = newGame.history({ verbose: true });
+        const headers = newGame.header();
+        const headerFen = headers['FEN'] || undefined;
+        const temp = new Chess(headerFen);
+        initFen = temp.fen();
+
+        for (const mv of history) {
+          const beforeFen = temp.fen();
+          try {
+            const played = temp.move(mv);
+            newUndoStack.push({ fen: beforeFen, san: played.san });
+          } catch { break; }
+        }
+        if (history.length > 0) {
+          const last = history[history.length - 1];
+          lastMoveObj = { from: last.from, to: last.to };
+        }
+      } else {
+        newGame.load(trimmed);
+        initFen = newGame.fen();
+      }
+
       const timer = setTimeout(() => {
         updateActiveSession(s => ({
           ...s,
-          fen: newGame.fen(),
-          undoStack: [],
+          fen: isPgn ? newGame.fen() : initFen,
+          undoStack: newUndoStack,
           redoStack: [],
-          lastMove: null
+          lastMove: lastMoveObj
         }));
         setFenError('');
         setFenInput('');
       }, 500);
       return () => clearTimeout(timer);
     } catch {
-      // not a valid FEN yet
+      // not a valid FEN or PGN yet
     }
   }, [fenInput, updateActiveSession]);
 
@@ -313,6 +366,21 @@ function App() {
     navigator.clipboard.writeText(game.fen());
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyPgn = () => {
+    let tempGame = new Chess();
+    if (undoStack.length > 0) {
+      tempGame = new Chess(undoStack[0].fen);
+      for (const move of undoStack) {
+        try { tempGame.move(move.san); } catch {}
+      }
+    } else {
+      tempGame = new Chess(game.fen());
+    }
+    navigator.clipboard.writeText(tempGame.pgn());
+    setCopiedPgn(true);
+    setTimeout(() => setCopiedPgn(false), 2000);
   };
 
   const makeBestMove = useCallback(() => {
@@ -387,13 +455,31 @@ function App() {
   }, [lastMove, game]);
 
   const arrows = useMemo(() => {
-    if (!bestMoveUCI || bestMoveUCI.length < 4) return [];
-    return [{ 
-      startSquare: bestMoveUCI.slice(0, 2), 
-      endSquare: bestMoveUCI.slice(2, 4),
-      color: 'rgba(255, 170, 0, 0.8)'
-    }];
-  }, [bestMoveUCI]);
+    const list: any[] = [];
+    
+    if (multiPvs.length === 0 && bestMoveUCI && bestMoveUCI.length >= 4) {
+      list.push({ startSquare: bestMoveUCI.slice(0, 2), endSquare: bestMoveUCI.slice(2, 4), color: '#33cc33' });
+      return list;
+    }
+
+    for (const line of multiPvs) {
+       if (!line.pv || line.pv.length === 0) continue;
+       const firstMove = line.pv[0];
+       
+       if (line.multipv === 1) {
+         list.push({ startSquare: firstMove.slice(0, 2), endSquare: firstMove.slice(2, 4), color: '#33cc33' });
+         
+         if (line.pv.length > 1) {
+           const secondMove = line.pv[1];
+           list.push({ startSquare: secondMove.slice(0, 2), endSquare: secondMove.slice(2, 4), color: '#ff3333' });
+         }
+       } else {
+         list.push({ startSquare: firstMove.slice(0, 2), endSquare: firstMove.slice(2, 4), color: '#3399ff' });
+       }
+    }
+    
+    return list;
+  }, [bestMoveUCI, multiPvs]);
 
   const memoizedChessboard = useMemo(
     () => (
@@ -479,9 +565,14 @@ function App() {
             value={game.fen()}
             className="premium-input fen-readonly"
           />
-          <button className="btn-primary copy-btn" onClick={handleCopyFen}>
-            <FaCopy /> {copied ? 'Copied! ✓' : 'Copy'}
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn-primary copy-btn" onClick={handleCopyFen}>
+              <FaCopy /> {copied ? 'Copied!' : 'Copy FEN'}
+            </button>
+            <button className="btn-primary copy-btn" onClick={handleCopyPgn}>
+              <FaCopy /> {copiedPgn ? 'Copied!' : 'Copy PGN'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
