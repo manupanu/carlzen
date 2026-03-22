@@ -92,7 +92,7 @@ function App() {
   const [isCoaching, setIsCoaching] = useState(false);
   const [aiCoachEnabled, setAiCoachEnabled] = useState(() => {
     const saved = localStorage.getItem(AI_COACH_KEY);
-    return saved !== null ? saved === 'true' : true;
+    return saved !== null ? saved === 'true' : false;
   });
 
   // UX

@@ -65,10 +65,16 @@ export function CoachPanel({
           </button>
           {isAiSummaryEnabled && (
             <div className="ai-advice-container">
-              <p className="ai-advice-text">
-                {coachAdvice}
-                {isCoaching && <span className="cursor-blink">|</span>}
-              </p>
+              {isCoaching && !coachAdvice ? (
+                <p className="ai-advice-text pulse-text" style={{ opacity: 0.8, fontStyle: 'italic' }}>
+                  CarlZen is formulating advice...
+                </p>
+              ) : (
+                <p className="ai-advice-text">
+                  {coachAdvice}
+                  {isCoaching && <span className="cursor-blink">|</span>}
+                </p>
+              )}
             </div>
           )}
         </>

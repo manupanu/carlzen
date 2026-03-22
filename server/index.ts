@@ -37,7 +37,10 @@ app.post('/api/coach', async (req, res) => {
       messages: [
         {
           role: 'system',
-          content: 'You are CarlZen, an elite chess coach. Explain the strategic intent behind moves in 1-2 concise sentences. Focus on concepts (e.g., control of the center, piece activity, pawn structure) rather than just tactical lines.',
+          content: `
+          Provide only the final advice in 2-4 very concise sentences.
+          You are CarlZen, an elite chess coach. Give a strategic summary of the move, focusing on key themes such as piece activity, king safety, or center control. Keep the final answer direct and concise. Default to plain text with no markdown or extra prefacing. Do not include internal reasoning, thoughts, or XML-like reasoning tags.
+          `,
         },
         {
           role: 'user',
@@ -50,10 +53,56 @@ app.post('/api/coach', async (req, res) => {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Transfer-Encoding', 'chunked');
 
+    let isThinking = false;
+    let buffer = '';
+
     for await (const chunk of stream) {
       const content = chunk.choices[0]?.delta?.content || '';
-      if (content) {
-        res.write(content);
+      if (!content) continue;
+
+      buffer += content;
+
+      while (buffer.length > 0) {
+        if (!isThinking) {
+          const thinkStart = buffer.indexOf('<think>');
+          if (thinkStart !== -1) {
+            // Write everything before <think>
+            if (thinkStart > 0) {
+              res.write(buffer.substring(0, thinkStart));
+            }
+            buffer = buffer.substring(thinkStart + 7);
+            isThinking = true;
+          } else {
+            // Check if buffer ends with a partial '<think>'
+            const lastOpenBracket = buffer.lastIndexOf('<');
+            if (lastOpenBracket !== -1 && '<think>'.startsWith(buffer.substring(lastOpenBracket))) {
+              if (lastOpenBracket > 0) {
+                res.write(buffer.substring(0, lastOpenBracket));
+                buffer = buffer.substring(lastOpenBracket);
+              }
+              break; // Wait for more data to complete the tag
+            } else {
+              res.write(buffer);
+              buffer = '';
+            }
+          }
+        } else {
+          const thinkEnd = buffer.indexOf('</think>');
+          if (thinkEnd !== -1) {
+            buffer = buffer.substring(thinkEnd + 8);
+            isThinking = false;
+          } else {
+            // Check if buffer ends with a partial '</think>'
+            const lastOpenBracket = buffer.lastIndexOf('<');
+            if (lastOpenBracket !== -1 && '</think>'.startsWith(buffer.substring(lastOpenBracket))) {
+              buffer = buffer.substring(lastOpenBracket);
+              break; // Wait for more data
+            } else {
+              buffer = ''; // Discard everything while thinking
+              break;
+            }
+          }
+        }
       }
     }
     res.end();
