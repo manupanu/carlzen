@@ -1,5 +1,5 @@
 # Build stage
-FROM node:24-slim AS build
+FROM node:24-bookworm-slim AS build
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ RUN npm run build
 RUN npx tsc --project tsconfig.server.json
 
 # Final stage
-FROM node:24-slim
+FROM node:24-bookworm-slim
 
 WORKDIR /app
 
