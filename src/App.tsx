@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { startTransition, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { FaCopy } from 'react-icons/fa';
 import { Engine } from './engine';
-import { getCoachFeedback } from './ai';
+import { getCoachFeedback, type CoachLine } from './ai';
 import { pushSyncState, pullSyncState, type SyncState } from './sync';
 import { Sidebar } from './Sidebar';
 import { BoardControls } from './BoardControls';
+import { SettingsSheet } from './SettingsSheet';
 import { SessionTabs, type HistEntry, type Session } from './SessionTabs';
 import './App.css';
 
@@ -15,7 +16,30 @@ const SESSIONS_KEY = 'carlzen_sessions';
 const ACTIVE_SESSION_KEY = 'carlzen_active_session';
 const SYNC_TOKEN_KEY = 'carlzen_sync_token';
 const SYNC_UPDATED_AT_KEY = 'carlzen_sync_updated_at';
+const ENGINE_DEPTH_KEY = 'carlzen_engine_depth';
+const WELCOME_DISMISSED_KEY = 'carlzen_welcome_dismissed';
 const START_FEN = new Chess().fen();
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
+interface SessionBackupFile {
+  version: 1;
+  exportedAt: string;
+  state: {
+    sessions: Session[];
+    activeSessionId: string;
+  };
+}
+
+interface MultiPvLine {
+  multipv: number;
+  pv: string[];
+  cp?: number;
+  mate?: number;
+}
 
 function cpToPercent(cp: number): number {
   const capped = Math.max(-1000, Math.min(1000, cp));
@@ -113,6 +137,32 @@ function isTrivialState(sessions: Session[], activeSessionId: string): boolean {
   );
 }
 
+function uciLineToSan(fen: string, uciMoves: string[]): string[] {
+  const game = new Chess(fen);
+  const sanMoves: string[] = [];
+
+  for (const move of uciMoves) {
+    try {
+      const played = game.move(move);
+      sanMoves.push(played.san);
+    } catch {
+      break;
+    }
+  }
+
+  return sanMoves;
+}
+
+function isSamePvLine(left: MultiPvLine, right: MultiPvLine): boolean {
+  return (
+    left.multipv === right.multipv &&
+    left.cp === right.cp &&
+    left.mate === right.mate &&
+    left.pv.length === right.pv.length &&
+    left.pv.every((move, index) => move === right.pv[index])
+  );
+}
+
 function App() {
   const [sessions, setSessions] = useState<Session[]>(() => {
     const saved = localStorage.getItem(SESSIONS_KEY);
@@ -169,8 +219,12 @@ function App() {
   const [bestMoveSAN, setBestMoveSAN] = useState('');
   const [evaluation, setEvaluation] = useState('');
   const [evalPercent, setEvalPercent] = useState(50);
-  const [engineDepth, setEngineDepth] = useState(18);
-  const [multiPvs, setMultiPvs] = useState<Array<{ multipv: number; pv: string[] }>>([]);
+  const [engineScore, setEngineScore] = useState<{ cp?: number; mate?: number } | null>(null);
+  const [engineDepth, setEngineDepth] = useState(() => {
+    const saved = Number(localStorage.getItem(ENGINE_DEPTH_KEY));
+    return Number.isFinite(saved) && saved >= 1 && saved <= 25 ? saved : 18;
+  });
+  const [multiPvs, setMultiPvs] = useState<MultiPvLine[]>([]);
   const [coachAdvice, setCoachAdvice] = useState('');
   const [isCoaching, setIsCoaching] = useState(false);
   const [aiCoachEnabled, setAiCoachEnabled] = useState(() => {
@@ -181,12 +235,18 @@ function App() {
   const [copiedPgn, setCopiedPgn] = useState(false);
   const [syncStatus, setSyncStatus] = useState('Sync disabled. Add a token to enable sync.');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(() => localStorage.getItem(WELCOME_DISMISSED_KEY) !== 'true');
+  const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
 
   const engineRef = useRef<Engine | null>(null);
   const gameFenRef = useRef(game.fen());
   const abortControllerRef = useRef<AbortController | null>(null);
   const engineDepthRef = useRef(engineDepth);
   const aiCoachEnabledRef = useRef(aiCoachEnabled);
+  const engineScoreRef = useRef(engineScore);
+  const multiPvsRef = useRef(multiPvs);
+  const moveHistoryRef = useRef<string[]>([]);
   const applyingRemoteStateRef = useRef(false);
   const repairingActiveSessionRef = useRef(false);
   const hasTrackedInitialStateRef = useRef(false);
@@ -270,6 +330,14 @@ function App() {
   }, [aiCoachEnabled]);
 
   useEffect(() => {
+    engineScoreRef.current = engineScore;
+  }, [engineScore]);
+
+  useEffect(() => {
+    multiPvsRef.current = multiPvs;
+  }, [multiPvs]);
+
+  useEffect(() => {
     localStorage.setItem(AI_COACH_KEY, String(aiCoachEnabled));
     if (!aiCoachEnabled) {
       abortControllerRef.current?.abort();
@@ -278,28 +346,84 @@ function App() {
     }
   }, [aiCoachEnabled]);
 
-  const fetchCoachingAdvice = useCallback(async (fen: string, move: string) => {
+  useEffect(() => {
+    localStorage.setItem(ENGINE_DEPTH_KEY, String(engineDepth));
+  }, [engineDepth]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPromptEvent(event as BeforeInstallPromptEvent);
+    };
+
+    const handleAppInstalled = () => {
+      setInstallPromptEvent(null);
+      setSyncStatus('CarlZen installed successfully.');
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const fetchCoachingAdvice = useCallback(async (fen: string, move: string, moveUci?: string) => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = new AbortController();
     setIsCoaching(true);
     setCoachAdvice('');
 
-    if (!navigator.onLine) {
+    if (!isOnline) {
       setCoachAdvice('AI Coach is unavailable offline. Please rely on local Stockfish evaluation.');
       setIsCoaching(false);
       return;
     }
 
+    const topLines: CoachLine[] = multiPvsRef.current
+      .slice()
+      .sort((a, b) => a.multipv - b.multipv)
+      .map((line) => ({
+        rank: line.multipv,
+        cp: line.cp,
+        mate: line.mate,
+        uci: line.pv.slice(0, 6),
+        san: uciLineToSan(fen, line.pv.slice(0, 6)),
+      }));
+
     await getCoachFeedback(
-      fen,
-      move,
+      {
+        fen,
+        move,
+        moveUci,
+        evaluation,
+        scoreCp: engineScoreRef.current?.cp,
+        scoreMate: engineScoreRef.current?.mate,
+        engineDepth: engineDepthRef.current,
+        topLines,
+        recentMoves: moveHistoryRef.current.slice(-8),
+      },
       (chunk) => {
         setCoachAdvice((prev) => prev + chunk);
       },
       abortControllerRef.current.signal
     );
     setIsCoaching(false);
-  }, []);
+  }, [evaluation, isOnline]);
 
   const applyRemoteState = useCallback((state: SyncState) => {
     const normalizedSessions = normalizeSessions(state.sessions, state.updatedAt);
@@ -308,9 +432,11 @@ function App() {
       : normalizedSessions[0].id;
 
     applyingRemoteStateRef.current = true;
-    setSessions(normalizedSessions);
-    setActiveSessionId(nextActiveSessionId);
-    setDocumentUpdatedAt(state.updatedAt);
+    startTransition(() => {
+      setSessions(normalizedSessions);
+      setActiveSessionId(nextActiveSessionId);
+      setDocumentUpdatedAt(state.updatedAt);
+    });
   }, []);
 
   const syncNow = useCallback(async () => {
@@ -320,7 +446,7 @@ function App() {
       return;
     }
 
-    if (!navigator.onLine) {
+    if (!isOnline) {
       setSyncStatus('Offline. Changes stay local until you reconnect.');
       return;
     }
@@ -353,7 +479,7 @@ function App() {
     } finally {
       setIsSyncing(false);
     }
-  }, [applyRemoteState, syncToken]);
+  }, [applyRemoteState, isOnline, syncToken]);
 
   useEffect(() => {
     const token = syncToken.trim();
@@ -369,6 +495,12 @@ function App() {
 
     return () => window.clearInterval(intervalId);
   }, [syncToken, syncNow]);
+
+  useEffect(() => {
+    if (isOnline && syncToken.trim()) {
+      void syncNow();
+    }
+  }, [isOnline, syncNow, syncToken]);
 
   useEffect(() => {
     const token = syncToken.trim();
@@ -397,13 +529,13 @@ function App() {
           const moveObj = gameCopy.move(uciMove);
           setBestMoveSAN(moveObj.san);
           if (aiCoachEnabledRef.current) {
-            void fetchCoachingAdvice(gameFenRef.current, moveObj.san);
+            void fetchCoachingAdvice(gameFenRef.current, moveObj.san, uciMove);
           }
         } catch {
           console.error('Invalid move from engine:', uciMove);
           setBestMoveSAN(uciMove);
           if (aiCoachEnabledRef.current) {
-            void fetchCoachingAdvice(gameFenRef.current, uciMove);
+            void fetchCoachingAdvice(gameFenRef.current, uciMove, uciMove);
           }
         }
       } else if (msg.type === 'eval') {
@@ -411,14 +543,18 @@ function App() {
 
         if (pv && multipv) {
           setMultiPvs((prev) => {
+            const nextLine: MultiPvLine = { multipv, pv, cp, mate };
             const next = [...prev];
             const idx = next.findIndex((line) => line.multipv === multipv);
             if (idx >= 0) {
-              next[idx] = { multipv, pv };
+              if (isSamePvLine(next[idx], nextLine)) {
+                return prev;
+              }
+              next[idx] = nextLine;
             } else {
-              next.push({ multipv, pv });
+              next.push(nextLine);
             }
-            return next;
+            return next.sort((left, right) => left.multipv - right.multipv);
           });
         }
 
@@ -427,10 +563,12 @@ function App() {
             const color = mate > 0 ? 'White' : 'Black';
             setEvaluation(`Mate in ${Math.abs(mate)} for ${color}`);
             setEvalPercent(mate > 0 ? 98 : 2);
+            setEngineScore({ mate });
           } else if (cp !== undefined) {
             const evalStr = (cp / 100).toFixed(2);
             setEvaluation(cp > 0 ? `+${evalStr}` : evalStr);
             setEvalPercent(cpToPercent(cp));
+            setEngineScore({ cp });
           }
         }
       }
@@ -450,6 +588,7 @@ function App() {
     setCoachAdvice('');
     setEvaluation('');
     setEvalPercent(50);
+    setEngineScore(null);
     setMultiPvs([]);
     abortControllerRef.current?.abort();
 
@@ -470,6 +609,7 @@ function App() {
     setBestMoveSAN('');
     setEvaluation('');
     setEvalPercent(50);
+    setEngineScore(null);
     setMultiPvs([]);
 
     const timerId = window.setTimeout(() => {
@@ -667,6 +807,78 @@ function App() {
     window.setTimeout(() => setCopiedPgn(false), 2000);
   };
 
+  const handleExportSessions = useCallback(() => {
+    const backup: SessionBackupFile = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      state: {
+        sessions,
+        activeSessionId,
+      },
+    };
+
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+    anchor.href = url;
+    anchor.download = `carlzen-backup-${stamp}.json`;
+    anchor.click();
+
+    URL.revokeObjectURL(url);
+    setSyncStatus('Backup exported.');
+  }, [activeSessionId, sessions]);
+
+  const handleImportSessions = useCallback(async (file: File) => {
+    try {
+      const raw = await file.text();
+      const parsed = JSON.parse(raw) as SessionBackupFile | Session[];
+      const importedState =
+        Array.isArray(parsed)
+          ? { sessions: parsed, activeSessionId: parsed[0]?.id ?? '' }
+          : parsed.state;
+
+      const normalizedSessions = normalizeSessions(importedState?.sessions);
+      const nextActiveSessionId = normalizedSessions.some((session) => session.id === importedState?.activeSessionId)
+        ? importedState.activeSessionId
+        : normalizedSessions[0].id;
+
+      startTransition(() => {
+        setSessions(normalizedSessions);
+        setActiveSessionId(nextActiveSessionId);
+        setDocumentUpdatedAt(Date.now());
+      });
+
+      setSyncStatus(`Imported ${normalizedSessions.length} game${normalizedSessions.length === 1 ? '' : 's'}.`);
+      setFenError('');
+    } catch (error) {
+      console.error('Failed to import sessions:', error);
+      setSyncStatus('Import failed. Use a CarlZen backup JSON file.');
+    }
+  }, []);
+
+  const handleInstallApp = useCallback(async () => {
+    if (!installPromptEvent) {
+      setSyncStatus('Install is not currently available in this browser.');
+      return;
+    }
+
+    await installPromptEvent.prompt();
+    const result = await installPromptEvent.userChoice;
+    if (result.outcome === 'accepted') {
+      setSyncStatus('Install prompt accepted.');
+      setInstallPromptEvent(null);
+    } else {
+      setSyncStatus('Install prompt dismissed.');
+    }
+  }, [installPromptEvent]);
+
+  const closeSettingsSheet = useCallback(() => {
+    localStorage.setItem(WELCOME_DISMISSED_KEY, 'true');
+    setIsSettingsOpen(false);
+  }, []);
+
   const makeBestMove = useCallback(() => {
     if (!bestMoveUCI) {
       return;
@@ -720,6 +932,10 @@ function App() {
   );
 
   const moveHistory = useMemo(() => undoStack.map((entry) => entry.san), [undoStack]);
+
+  useEffect(() => {
+    moveHistoryRef.current = moveHistory;
+  }, [moveHistory]);
 
   const gameStatus = useMemo(() => {
     if (game.isCheckmate()) {
@@ -827,16 +1043,9 @@ function App() {
 
   return (
     <div className="app-container">
-      <Sidebar
-        fenInput={fenInput}
-        setFenInput={setFenInput}
-        onReset={handleReset}
-        fenError={fenError}
-        moveHistory={moveHistory}
-        engineDepth={engineDepth}
-        setEngineDepth={setEngineDepth}
-        aiCoachEnabled={aiCoachEnabled}
-        setAiCoachEnabled={setAiCoachEnabled}
+      <SettingsSheet
+        isOpen={isSettingsOpen}
+        onClose={closeSettingsSheet}
         syncToken={syncToken}
         setSyncToken={setSyncToken}
         onSyncNow={() => {
@@ -844,6 +1053,29 @@ function App() {
         }}
         syncStatus={syncStatus}
         isSyncing={isSyncing}
+        isOnline={isOnline}
+        onExportSessions={handleExportSessions}
+        onImportSessions={(file) => {
+          void handleImportSessions(file);
+        }}
+        canInstall={Boolean(installPromptEvent)}
+        onInstallApp={() => {
+          void handleInstallApp();
+        }}
+      />
+      <Sidebar
+        activeGameName={activeSession.name}
+        sessionCount={sessions.length}
+        fenInput={fenInput}
+        setFenInput={setFenInput}
+        onReset={handleReset}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        fenError={fenError}
+        moveHistory={moveHistory}
+        engineDepth={engineDepth}
+        setEngineDepth={setEngineDepth}
+        aiCoachEnabled={aiCoachEnabled}
+        setAiCoachEnabled={setAiCoachEnabled}
         coachProps={{
           evaluation,
           bestMoveSAN,
@@ -869,6 +1101,7 @@ function App() {
         <BoardControls
           bestMoveSAN={bestMoveSAN}
           evaluation={evaluation}
+          canUndo={undoStack.length > 0}
           canRedo={redoStack.length > 0}
           onUndo={handleUndo}
           onRedo={handleRedo}

@@ -3,6 +3,7 @@ import { FaUndo, FaRedo, FaSyncAlt, FaRobot } from 'react-icons/fa';
 interface BoardControlsProps {
   bestMoveSAN: string;
   evaluation: string;
+  canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
@@ -12,6 +13,7 @@ interface BoardControlsProps {
 export function BoardControls({
   bestMoveSAN,
   evaluation,
+  canUndo,
   canRedo,
   onUndo,
   onRedo,
@@ -24,7 +26,12 @@ export function BoardControls({
           <FaRobot /> {bestMoveSAN} ({evaluation})
         </div>
       )}
-      <button className="btn-secondary icon-btn" onClick={onUndo} title="Undo (Ctrl+Z)">
+      <button
+        className="btn-secondary icon-btn"
+        onClick={onUndo}
+        disabled={!canUndo}
+        title="Undo (Ctrl+Z)"
+      >
         <FaUndo />
       </button>
       <button
