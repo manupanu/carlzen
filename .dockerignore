@@ -1,9 +1,14 @@
 node_modules
 dist
+dist-server
+dist-ssr
 .git
+.github
 .env
-.env.local
+.env*
+!.env.example
 README.md
+LICENSE
 Dockerfile
 docker-compose.yml
 .editorconfig
@@ -11,3 +16,4 @@ docker-compose.yml
 .idea
 *.log
 npm-debug.log*
+test_*.mjs
