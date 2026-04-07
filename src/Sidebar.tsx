@@ -11,6 +11,11 @@ interface SidebarProps {
   setEngineDepth: (d: number) => void;
   aiCoachEnabled: boolean;
   setAiCoachEnabled: (v: boolean) => void;
+  syncToken: string;
+  setSyncToken: (v: string) => void;
+  onSyncNow: () => void;
+  syncStatus: string;
+  isSyncing: boolean;
   coachProps: React.ComponentProps<typeof CoachPanel>;
 }
 
@@ -24,6 +29,11 @@ export function Sidebar({
   setEngineDepth,
   aiCoachEnabled,
   setAiCoachEnabled,
+  syncToken,
+  setSyncToken,
+  onSyncNow,
+  syncStatus,
+  isSyncing,
   coachProps,
 }: SidebarProps) {
   return (
@@ -71,6 +81,29 @@ export function Sidebar({
               <span>Fast</span><span>Strong</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="panel-content">
+        <h3>Sync</h3>
+        <div className="input-group">
+          <input
+            type="text"
+            placeholder="Enter your sync token..."
+            value={syncToken}
+            onChange={(e) => setSyncToken(e.target.value)}
+            className="premium-input"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+          <p className="helper-text">
+            Use the same token on each device to sync your saved games.
+          </p>
+          <button className="btn-secondary" onClick={onSyncNow} disabled={isSyncing || !syncToken.trim()}>
+            {isSyncing ? 'Syncing...' : 'Sync Now'}
+          </button>
+          <p className="sync-status-text">{syncStatus}</p>
         </div>
       </div>
 

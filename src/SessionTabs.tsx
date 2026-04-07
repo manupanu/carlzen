@@ -10,6 +10,7 @@ export interface Session {
   undoStack: HistEntry[];
   redoStack: HistEntry[];
   lastMove?: { from: string; to: string } | null;
+  updatedAt: number;
 }
 
 interface SessionTabsProps {

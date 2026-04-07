@@ -132,6 +132,12 @@
   color: var(--text-secondary);
 }
 
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .fen-readonly {
   flex: 1;
   background: rgba(0, 0, 0, 0.4);
@@ -162,6 +168,14 @@
   margin: 8px 0 0;
   font-size: 13px;
   color: #fca5a5;
+}
+
+.helper-text,
+.sync-status-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
 /* ── Buttons ─────────────────────────────────────────────── */

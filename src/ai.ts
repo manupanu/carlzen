@@ -32,8 +32,8 @@ export const getCoachFeedback = async (
       const chunk = decoder.decode(value, { stream: true });
       onChunk(chunk);
     }
-  } catch (error: any) {
-    if (error.name === 'AbortError') return;
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'AbortError') return;
     console.error('Error fetching AI coaching:', error);
     onChunk('Sorry, I couldn\'t analyze that move right now.');
   }

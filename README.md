@@ -21,7 +21,7 @@
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v20 or higher recommended)
+- [Node.js](https://nodejs.org/) (v24 or higher recommended)
 - An [OpenAI API Key](https://platform.openai.com/api-keys)
 
 ### Installation
@@ -58,6 +58,9 @@
    ```bash
    npm run dev:all
    ```
+
+5. **Optional: enable cross-device sync**
+   Enter the same sync token in the sidebar on each device. The backend stores your sessions in a local SQLite database and automatically syncs the newest saved state.
 
 5. **Build for production:**
    ```bash

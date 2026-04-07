@@ -1,141 +1,387 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
+import { FaCopy } from 'react-icons/fa';
 import { Engine } from './engine';
 import { getCoachFeedback } from './ai';
-import { FaCopy } from 'react-icons/fa';
+import { pushSyncState, pullSyncState, type SyncState } from './sync';
 import { Sidebar } from './Sidebar';
 import { BoardControls } from './BoardControls';
-import { SessionTabs, type Session } from './SessionTabs';
+import { SessionTabs, type HistEntry, type Session } from './SessionTabs';
 import './App.css';
 
 const AI_COACH_KEY = 'carlzen_ai_coach';
+const SESSIONS_KEY = 'carlzen_sessions';
+const ACTIVE_SESSION_KEY = 'carlzen_active_session';
+const SYNC_TOKEN_KEY = 'carlzen_sync_token';
+const SYNC_UPDATED_AT_KEY = 'carlzen_sync_updated_at';
+const START_FEN = new Chess().fen();
 
-// Convert a CP centipawn value to a 0–100 bar percentage (50 = equal)
 function cpToPercent(cp: number): number {
   const capped = Math.max(-1000, Math.min(1000, cp));
   return 50 + (capped / 1000) * 45;
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizeHistoryEntry(value: unknown): HistEntry | null {
+  if (!isObject(value) || typeof value.fen !== 'string' || typeof value.san !== 'string') {
+    return null;
+  }
+
+  return {
+    fen: value.fen,
+    san: value.san,
+  };
+}
+
+function createSession(
+  name: string,
+  overrides: Partial<Session> = {},
+  timestamp = Date.now()
+): Session {
+  return {
+    id: overrides.id ?? timestamp.toString(36),
+    name,
+    fen: overrides.fen ?? START_FEN,
+    orientation: overrides.orientation ?? 'white',
+    undoStack: overrides.undoStack ?? [],
+    redoStack: overrides.redoStack ?? [],
+    lastMove: overrides.lastMove ?? null,
+    updatedAt: overrides.updatedAt ?? timestamp,
+  };
+}
+
+function normalizeSession(value: unknown, index: number, fallbackUpdatedAt = Date.now()): Session | null {
+  if (!isObject(value) || typeof value.id !== 'string') {
+    return null;
+  }
+
+  const undoStack = Array.isArray(value.undoStack)
+    ? value.undoStack.map(normalizeHistoryEntry).filter((entry): entry is HistEntry => entry !== null)
+    : [];
+  const redoStack = Array.isArray(value.redoStack)
+    ? value.redoStack.map(normalizeHistoryEntry).filter((entry): entry is HistEntry => entry !== null)
+    : [];
+  const lastMove =
+    isObject(value.lastMove) && typeof value.lastMove.from === 'string' && typeof value.lastMove.to === 'string'
+      ? { from: value.lastMove.from, to: value.lastMove.to }
+      : null;
+
+  return {
+    id: value.id,
+    name: typeof value.name === 'string' && value.name.trim() ? value.name : `Game ${index + 1}`,
+    fen: typeof value.fen === 'string' && value.fen.trim() ? value.fen : START_FEN,
+    orientation: value.orientation === 'black' ? 'black' : 'white',
+    undoStack,
+    redoStack,
+    lastMove,
+    updatedAt:
+      typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt) && value.updatedAt >= 0
+        ? Math.trunc(value.updatedAt)
+        : fallbackUpdatedAt,
+  };
+}
+
+function normalizeSessions(value: unknown, fallbackUpdatedAt = Date.now()): Session[] {
+  const sessions = Array.isArray(value)
+    ? value
+        .map((session, index) => normalizeSession(session, index, fallbackUpdatedAt))
+        .filter((session): session is Session => session !== null)
+    : [];
+
+  const deduped = Array.from(new Map(sessions.map((session) => [session.id, session] as const)).values());
+  return deduped.length > 0 ? deduped : [createSession('Game 1', {}, fallbackUpdatedAt)];
+}
+
+function isTrivialState(sessions: Session[], activeSessionId: string): boolean {
+  if (sessions.length !== 1) {
+    return false;
+  }
+
+  const [session] = sessions;
+  return (
+    session.name === 'Game 1' &&
+    session.fen === START_FEN &&
+    session.orientation === 'white' &&
+    session.undoStack.length === 0 &&
+    session.redoStack.length === 0 &&
+    !session.lastMove &&
+    activeSessionId === session.id
+  );
+}
+
 function App() {
-  // Session State Manage
   const [sessions, setSessions] = useState<Session[]>(() => {
-    const saved = localStorage.getItem('carlzen_sessions');
+    const saved = localStorage.getItem(SESSIONS_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.length > 0) return parsed;
-      } catch {}
+        return normalizeSessions(parsed);
+      } catch {
+        localStorage.removeItem(SESSIONS_KEY);
+      }
     }
-    // Fall back to old local storage logic for migration if needed
+
     const oldSavedFen = localStorage.getItem('carlzen_board_state');
-    return [{ 
-      id: Date.now().toString(36), 
-      name: 'Game 1', 
-      fen: oldSavedFen || new Chess().fen(), 
-      orientation: 'white',
-      undoStack: [], 
-      redoStack: [] 
-    }];
+    return [createSession('Game 1', { fen: oldSavedFen || START_FEN })];
+  });
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => localStorage.getItem(ACTIVE_SESSION_KEY) || '');
+  const [syncToken, setSyncToken] = useState(() => localStorage.getItem(SYNC_TOKEN_KEY) || '');
+  const [documentUpdatedAt, setDocumentUpdatedAt] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(SYNC_UPDATED_AT_KEY));
+    return Number.isFinite(saved) && saved >= 0 ? saved : 0;
   });
 
-  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
-    const saved = localStorage.getItem('carlzen_active_session');
-    return saved || '';
-  });
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.id === activeSessionId) || sessions[0],
+    [sessions, activeSessionId]
+  );
 
-  // Ensure valid active ID
-  useEffect(() => {
-    if (!sessions.find(s => s.id === activeSessionId)) {
-      setActiveSessionId(sessions[0].id);
-    }
-  }, [sessions, activeSessionId]);
-
-  // Persist sessions
-  useEffect(() => {
-    localStorage.setItem('carlzen_sessions', JSON.stringify(sessions));
-    localStorage.setItem('carlzen_active_session', activeSessionId);
-  }, [sessions, activeSessionId]);
-
-  const activeSession = useMemo(() => {
-    const found = sessions.find(s => s.id === activeSessionId) || sessions[0];
-    // Migration: ensure orientation exists
-    if (!found.orientation) found.orientation = 'white';
-    return found;
-  }, [sessions, activeSessionId]);
-
-  // Derived state for current tab
   const game = useMemo(() => new Chess(activeSession.fen), [activeSession.fen]);
   const undoStack = activeSession.undoStack;
   const redoStack = activeSession.redoStack;
   const lastMove = activeSession.lastMove || null;
   const boardOrientation = activeSession.orientation || 'white';
 
-  const updateActiveSession = useCallback((updater: (s: Session) => Session) => {
-    setSessions(prev => prev.map(s => s.id === activeSessionId ? updater(s) : s));
-  }, [activeSessionId]);
+  const updateActiveSession = useCallback(
+    (updater: (session: Session) => Session) => {
+      setSessions((prev) =>
+        prev.map((session) => {
+          if (session.id !== activeSessionId) {
+            return session;
+          }
 
-  // FEN import
+          const nextSession = updater(session);
+          return { ...nextSession, updatedAt: Date.now() };
+        })
+      );
+    },
+    [activeSessionId]
+  );
+
   const [fenInput, setFenInput] = useState('');
   const [fenError, setFenError] = useState('');
-
-  // Engine & analysis (Local to App, but could reset on tab switch)
   const [isEngineReady, setIsEngineReady] = useState(false);
   const [bestMoveUCI, setBestMoveUCI] = useState('');
   const [bestMoveSAN, setBestMoveSAN] = useState('');
   const [evaluation, setEvaluation] = useState('');
   const [evalPercent, setEvalPercent] = useState(50);
   const [engineDepth, setEngineDepth] = useState(18);
-  const [multiPvs, setMultiPvs] = useState<Array<{ multipv: number, pv: string[] }>>([]);
-
-  // AI coaching
+  const [multiPvs, setMultiPvs] = useState<Array<{ multipv: number; pv: string[] }>>([]);
   const [coachAdvice, setCoachAdvice] = useState('');
   const [isCoaching, setIsCoaching] = useState(false);
   const [aiCoachEnabled, setAiCoachEnabled] = useState(() => {
     const saved = localStorage.getItem(AI_COACH_KEY);
     return saved !== null ? saved === 'true' : false;
   });
-
-  // UX
   const [copied, setCopied] = useState(false);
   const [copiedPgn, setCopiedPgn] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('Sync disabled. Add a token to enable sync.');
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const engineRef = useRef<Engine | null>(null);
   const gameFenRef = useRef(game.fen());
   const abortControllerRef = useRef<AbortController | null>(null);
   const engineDepthRef = useRef(engineDepth);
   const aiCoachEnabledRef = useRef(aiCoachEnabled);
+  const applyingRemoteStateRef = useRef(false);
+  const repairingActiveSessionRef = useRef(false);
+  const hasTrackedInitialStateRef = useRef(false);
+  const previousSyncTokenRef = useRef(syncToken.trim());
+  const syncSnapshotRef = useRef<SyncState>({
+    sessions,
+    activeSessionId,
+    updatedAt: documentUpdatedAt,
+  });
 
-  useEffect(() => { gameFenRef.current = game.fen(); }, [game]);
-  useEffect(() => { engineDepthRef.current = engineDepth; }, [engineDepth]);
-  useEffect(() => { aiCoachEnabledRef.current = aiCoachEnabled; }, [aiCoachEnabled]);
+  useEffect(() => {
+    if (!sessions.find((session) => session.id === activeSessionId)) {
+      repairingActiveSessionRef.current = true;
+      setActiveSessionId(sessions[0].id);
+    }
+  }, [sessions, activeSessionId]);
+
+  useEffect(() => {
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+    localStorage.setItem(ACTIVE_SESSION_KEY, activeSessionId);
+    localStorage.setItem(SYNC_UPDATED_AT_KEY, String(documentUpdatedAt));
+  }, [sessions, activeSessionId, documentUpdatedAt]);
+
+  useEffect(() => {
+    const trimmed = syncToken.trim();
+    if (trimmed) {
+      localStorage.setItem(SYNC_TOKEN_KEY, trimmed);
+    } else {
+      localStorage.removeItem(SYNC_TOKEN_KEY);
+    }
+  }, [syncToken]);
+
+  useEffect(() => {
+    syncSnapshotRef.current = {
+      sessions,
+      activeSessionId,
+      updatedAt: documentUpdatedAt,
+    };
+  }, [sessions, activeSessionId, documentUpdatedAt]);
+
+  useEffect(() => {
+    if (!hasTrackedInitialStateRef.current) {
+      hasTrackedInitialStateRef.current = true;
+      return;
+    }
+
+    if (repairingActiveSessionRef.current) {
+      repairingActiveSessionRef.current = false;
+      return;
+    }
+
+    if (applyingRemoteStateRef.current) {
+      applyingRemoteStateRef.current = false;
+      return;
+    }
+
+    setDocumentUpdatedAt(Date.now());
+  }, [sessions, activeSessionId]);
+
+  useEffect(() => {
+    const trimmed = syncToken.trim();
+    const previousTrimmed = previousSyncTokenRef.current;
+
+    if (trimmed && !previousTrimmed && documentUpdatedAt === 0 && !isTrivialState(sessions, activeSessionId)) {
+      setDocumentUpdatedAt(Date.now());
+    }
+
+    previousSyncTokenRef.current = trimmed;
+  }, [syncToken, sessions, activeSessionId, documentUpdatedAt]);
+
+  useEffect(() => {
+    gameFenRef.current = game.fen();
+  }, [game]);
+
+  useEffect(() => {
+    engineDepthRef.current = engineDepth;
+  }, [engineDepth]);
+
+  useEffect(() => {
+    aiCoachEnabledRef.current = aiCoachEnabled;
+  }, [aiCoachEnabled]);
 
   useEffect(() => {
     localStorage.setItem(AI_COACH_KEY, String(aiCoachEnabled));
     if (!aiCoachEnabled) {
-      if (abortControllerRef.current) abortControllerRef.current.abort();
+      abortControllerRef.current?.abort();
       setCoachAdvice('');
       setIsCoaching(false);
     }
   }, [aiCoachEnabled]);
 
   const fetchCoachingAdvice = useCallback(async (fen: string, move: string) => {
-    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current?.abort();
     abortControllerRef.current = new AbortController();
     setIsCoaching(true);
     setCoachAdvice('');
-    
+
     if (!navigator.onLine) {
       setCoachAdvice('AI Coach is unavailable offline. Please rely on local Stockfish evaluation.');
       setIsCoaching(false);
       return;
     }
 
-    await getCoachFeedback(fen, move, (chunk) => {
-      setCoachAdvice((prev) => prev + chunk);
-    }, abortControllerRef.current.signal);
+    await getCoachFeedback(
+      fen,
+      move,
+      (chunk) => {
+        setCoachAdvice((prev) => prev + chunk);
+      },
+      abortControllerRef.current.signal
+    );
     setIsCoaching(false);
   }, []);
+
+  const applyRemoteState = useCallback((state: SyncState) => {
+    const normalizedSessions = normalizeSessions(state.sessions, state.updatedAt);
+    const nextActiveSessionId = normalizedSessions.some((session) => session.id === state.activeSessionId)
+      ? state.activeSessionId
+      : normalizedSessions[0].id;
+
+    applyingRemoteStateRef.current = true;
+    setSessions(normalizedSessions);
+    setActiveSessionId(nextActiveSessionId);
+    setDocumentUpdatedAt(state.updatedAt);
+  }, []);
+
+  const syncNow = useCallback(async () => {
+    const token = syncToken.trim();
+    if (!token) {
+      setSyncStatus('Sync disabled. Add a token to enable sync.');
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setSyncStatus('Offline. Changes stay local until you reconnect.');
+      return;
+    }
+
+    setIsSyncing(true);
+    setSyncStatus('Syncing...');
+
+    try {
+      const localState = syncSnapshotRef.current;
+      const remoteState = await pullSyncState(token);
+      let resolvedState = remoteState;
+
+      if (!remoteState || localState.updatedAt > remoteState.updatedAt) {
+        resolvedState = await pushSyncState(token, localState);
+      }
+
+      if (resolvedState && resolvedState.updatedAt > localState.updatedAt) {
+        applyRemoteState(resolvedState);
+      }
+
+      setSyncStatus(
+        `Synced at ${new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        })}.`
+      );
+    } catch (error: unknown) {
+      console.error('Failed to sync sessions:', error);
+      setSyncStatus(error instanceof Error ? error.message : 'Sync failed. Check the server logs and try again.');
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [applyRemoteState, syncToken]);
+
+  useEffect(() => {
+    const token = syncToken.trim();
+    if (!token) {
+      setSyncStatus('Sync disabled. Add a token to enable sync.');
+      return;
+    }
+
+    void syncNow();
+    const intervalId = window.setInterval(() => {
+      void syncNow();
+    }, 15000);
+
+    return () => window.clearInterval(intervalId);
+  }, [syncToken, syncNow]);
+
+  useEffect(() => {
+    const token = syncToken.trim();
+    if (!token || documentUpdatedAt === 0) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void syncNow();
+    }, 800);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [syncToken, documentUpdatedAt, syncNow]);
 
   useEffect(() => {
     engineRef.current = new Engine((msg) => {
@@ -146,24 +392,32 @@ function App() {
         const uciMove = msg.data;
         setBestMoveUCI(uciMove);
         const gameCopy = new Chess(gameFenRef.current);
+
         try {
           const moveObj = gameCopy.move(uciMove);
           setBestMoveSAN(moveObj.san);
-          if (aiCoachEnabledRef.current) fetchCoachingAdvice(gameFenRef.current, moveObj.san);
+          if (aiCoachEnabledRef.current) {
+            void fetchCoachingAdvice(gameFenRef.current, moveObj.san);
+          }
         } catch {
           console.error('Invalid move from engine:', uciMove);
           setBestMoveSAN(uciMove);
-          if (aiCoachEnabledRef.current) fetchCoachingAdvice(gameFenRef.current, uciMove);
+          if (aiCoachEnabledRef.current) {
+            void fetchCoachingAdvice(gameFenRef.current, uciMove);
+          }
         }
       } else if (msg.type === 'eval') {
         const { cp, mate, multipv, pv } = msg.result;
 
         if (pv && multipv) {
-          setMultiPvs(prev => {
+          setMultiPvs((prev) => {
             const next = [...prev];
-            const idx = next.findIndex(p => p.multipv === multipv);
-            if (idx >= 0) next[idx] = { multipv, pv };
-            else next.push({ multipv, pv });
+            const idx = next.findIndex((line) => line.multipv === multipv);
+            if (idx >= 0) {
+              next[idx] = { multipv, pv };
+            } else {
+              next.push({ multipv, pv });
+            }
             return next;
           });
         }
@@ -181,67 +435,65 @@ function App() {
         }
       }
     });
+
     return () => engineRef.current?.quit();
   }, [fetchCoachingAdvice]);
 
-  // Re-analyse whenever position changes
   useEffect(() => {
-    if (engineRef.current) {
-      engineRef.current.stop();
-      setBestMoveUCI('');
-      setBestMoveSAN('');
-      setCoachAdvice('');
-      setEvaluation('');
-      setEvalPercent(50);
-      setMultiPvs([]);
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-
-      const timerId = setTimeout(() => {
-        engineRef.current?.evaluatePosition(game.fen(), engineDepthRef.current);
-      }, 300);
-
-      return () => clearTimeout(timerId);
+    if (!engineRef.current) {
+      return;
     }
+
+    engineRef.current.stop();
+    setBestMoveUCI('');
+    setBestMoveSAN('');
+    setCoachAdvice('');
+    setEvaluation('');
+    setEvalPercent(50);
+    setMultiPvs([]);
+    abortControllerRef.current?.abort();
+
+    const timerId = window.setTimeout(() => {
+      engineRef.current?.evaluatePosition(game.fen(), engineDepthRef.current);
+    }, 300);
+
+    return () => window.clearTimeout(timerId);
   }, [game]);
 
   useEffect(() => {
-    if (!isEngineReady || !engineRef.current) return;
+    if (!isEngineReady || !engineRef.current) {
+      return;
+    }
+
     engineRef.current.stop();
     setBestMoveUCI('');
     setBestMoveSAN('');
     setEvaluation('');
     setEvalPercent(50);
     setMultiPvs([]);
-    const timerId = setTimeout(() => {
+
+    const timerId = window.setTimeout(() => {
       engineRef.current?.evaluatePosition(gameFenRef.current, engineDepth);
     }, 300);
-    return () => clearTimeout(timerId);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engineDepth]);
 
-  // ── Tab Handlers ──────────────────────────────────────────
+    return () => window.clearTimeout(timerId);
+  }, [engineDepth, isEngineReady]);
 
   const handleAddTab = () => {
-    const newId = Date.now().toString(36);
-    setSessions(prev => [
-      ...prev,
-      { 
-        id: newId, 
-        name: `Game ${prev.length + 1}`, 
-        fen: new Chess().fen(), 
-        orientation: 'white',
-        undoStack: [], 
-        redoStack: [] 
-      }
-    ]);
-    setActiveSessionId(newId);
+    const timestamp = Date.now();
+    const newSession = createSession(`Game ${sessions.length + 1}`, {}, timestamp);
+    setSessions((prev) => [...prev, newSession]);
+    setActiveSessionId(newSession.id);
   };
 
   const handleCloseTab = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (sessions.length <= 1) return;
-    setSessions(prev => {
-      const filtered = prev.filter(s => s.id !== id);
+    if (sessions.length <= 1) {
+      return;
+    }
+
+    setSessions((prev) => {
+      const filtered = prev.filter((session) => session.id !== id);
       if (activeSessionId === id && filtered.length > 0) {
         setActiveSessionId(filtered[filtered.length - 1].id);
       }
@@ -250,92 +502,118 @@ function App() {
   };
 
   const handleRenameTab = (id: string, newName: string) => {
-    setSessions(prev => prev.map(s => s.id === id ? { ...s, name: newName } : s));
+    const timestamp = Date.now();
+    setSessions((prev) =>
+      prev.map((session) =>
+        session.id === id ? { ...session, name: newName, updatedAt: timestamp } : session
+      )
+    );
   };
 
-  // ── Game Handlers ─────────────────────────────────────────
-
   const handleUndo = useCallback(() => {
-    if (undoStack.length === 0) return;
+    if (undoStack.length === 0) {
+      return;
+    }
+
     const entry = undoStack[undoStack.length - 1];
     const currentFen = gameFenRef.current;
-    updateActiveSession(s => ({
-      ...s,
+    updateActiveSession((session) => ({
+      ...session,
       fen: entry.fen,
-      undoStack: s.undoStack.slice(0, -1),
-      redoStack: [{ fen: currentFen, san: entry.san }, ...s.redoStack],
-      lastMove: null
+      undoStack: session.undoStack.slice(0, -1),
+      redoStack: [{ fen: currentFen, san: entry.san }, ...session.redoStack],
+      lastMove: null,
     }));
   }, [undoStack, updateActiveSession]);
 
   const handleRedo = useCallback(() => {
-    if (redoStack.length === 0) return;
+    if (redoStack.length === 0) {
+      return;
+    }
+
     const entry = redoStack[0];
     const currentFen = gameFenRef.current;
-    updateActiveSession(s => ({
-      ...s,
+    updateActiveSession((session) => ({
+      ...session,
       fen: entry.fen,
-      undoStack: [...s.undoStack, { fen: currentFen, san: entry.san }],
-      redoStack: s.redoStack.slice(1),
-      lastMove: null
+      undoStack: [...session.undoStack, { fen: currentFen, san: entry.san }],
+      redoStack: session.redoStack.slice(1),
+      lastMove: null,
     }));
   }, [redoStack, updateActiveSession]);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
+    const handler = (event: KeyboardEvent) => {
       const isMac = navigator.platform.toUpperCase().includes('MAC');
-      const modifier = isMac ? e.metaKey : e.ctrlKey;
-      if (!modifier) return;
-      if (e.key === 'z') { e.preventDefault(); handleUndo(); }
-      if (e.key === 'y') { e.preventDefault(); handleRedo(); }
+      const modifier = isMac ? event.metaKey : event.ctrlKey;
+      if (!modifier) {
+        return;
+      }
+
+      if (event.key === 'z') {
+        event.preventDefault();
+        handleUndo();
+      }
+
+      if (event.key === 'y') {
+        event.preventDefault();
+        handleRedo();
+      }
     };
+
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [handleUndo, handleRedo]);
 
   const handleFlip = useCallback(() => {
-    updateActiveSession(s => ({
-      ...s,
-      orientation: s.orientation === 'white' ? 'black' : 'white'
+    updateActiveSession((session) => ({
+      ...session,
+      orientation: session.orientation === 'white' ? 'black' : 'white',
     }));
   }, [updateActiveSession]);
 
   const handleReset = () => {
-    updateActiveSession(s => ({
-      ...s,
-      fen: new Chess().fen(),
+    updateActiveSession((session) => ({
+      ...session,
+      fen: START_FEN,
       undoStack: [],
       redoStack: [],
-      lastMove: null
+      lastMove: null,
     }));
     setFenError('');
   };
 
   useEffect(() => {
     const trimmed = fenInput.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      return;
+    }
+
     try {
       const isPgn = trimmed.startsWith('1.') || trimmed.includes('[Event');
       const newGame = new Chess();
       let initFen = newGame.fen();
-      let newUndoStack: {fen: string, san: string}[] = [];
-      let lastMoveObj: {from: string; to: string} | null = null;
-      
+      const newUndoStack: HistEntry[] = [];
+      let lastMoveObj: { from: string; to: string } | null = null;
+
       if (isPgn) {
         newGame.loadPgn(trimmed);
         const history = newGame.history({ verbose: true });
         const headers = newGame.header();
-        const headerFen = headers['FEN'] || undefined;
+        const headerFen = headers.FEN || undefined;
         const temp = new Chess(headerFen);
         initFen = temp.fen();
 
-        for (const mv of history) {
+        for (const move of history) {
           const beforeFen = temp.fen();
           try {
-            const played = temp.move(mv);
+            const played = temp.move(move);
             newUndoStack.push({ fen: beforeFen, san: played.san });
-          } catch { break; }
+          } catch {
+            break;
+          }
         }
+
         if (history.length > 0) {
           const last = history[history.length - 1];
           lastMoveObj = { from: last.from, to: last.to };
@@ -345,27 +623,28 @@ function App() {
         initFen = newGame.fen();
       }
 
-      const timer = setTimeout(() => {
-        updateActiveSession(s => ({
-          ...s,
+      const timer = window.setTimeout(() => {
+        updateActiveSession((session) => ({
+          ...session,
           fen: isPgn ? newGame.fen() : initFen,
           undoStack: newUndoStack,
           redoStack: [],
-          lastMove: lastMoveObj
+          lastMove: lastMoveObj,
         }));
         setFenError('');
         setFenInput('');
       }, 500);
-      return () => clearTimeout(timer);
+
+      return () => window.clearTimeout(timer);
     } catch {
-      // not a valid FEN or PGN yet
+      // Ignore partial or invalid FEN/PGN input until it becomes valid.
     }
   }, [fenInput, updateActiveSession]);
 
   const handleCopyFen = () => {
-    navigator.clipboard.writeText(game.fen());
+    void navigator.clipboard.writeText(game.fen());
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    window.setTimeout(() => setCopied(false), 2000);
   };
 
   const handleCopyPgn = () => {
@@ -373,48 +652,64 @@ function App() {
     if (undoStack.length > 0) {
       tempGame = new Chess(undoStack[0].fen);
       for (const move of undoStack) {
-        try { tempGame.move(move.san); } catch {}
+        try {
+          tempGame.move(move.san);
+        } catch {
+          continue;
+        }
       }
     } else {
       tempGame = new Chess(game.fen());
     }
-    navigator.clipboard.writeText(tempGame.pgn());
+
+    void navigator.clipboard.writeText(tempGame.pgn());
     setCopiedPgn(true);
-    setTimeout(() => setCopiedPgn(false), 2000);
+    window.setTimeout(() => setCopiedPgn(false), 2000);
   };
 
   const makeBestMove = useCallback(() => {
-    if (!bestMoveUCI) return;
+    if (!bestMoveUCI) {
+      return;
+    }
+
     const currentFen = gameFenRef.current;
     const gameCopy = new Chess(currentFen);
+
     try {
       const moveObj = gameCopy.move(bestMoveUCI);
-      updateActiveSession(s => ({
-        ...s,
+      updateActiveSession((session) => ({
+        ...session,
         fen: gameCopy.fen(),
-        undoStack: [...s.undoStack, { fen: currentFen, san: moveObj.san }],
+        undoStack: [...session.undoStack, { fen: currentFen, san: moveObj.san }],
         redoStack: [],
-        lastMove: { from: moveObj.from, to: moveObj.to }
+        lastMove: { from: moveObj.from, to: moveObj.to },
       }));
-    } catch (e) {
-      console.error('Failed to make best move:', bestMoveUCI, e);
+    } catch (error) {
+      console.error('Failed to make best move:', bestMoveUCI, error);
     }
   }, [bestMoveUCI, updateActiveSession]);
 
   const onDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }) => {
-      if (!targetSquare) return false;
+      if (!targetSquare) {
+        return false;
+      }
+
       const currentFen = gameFenRef.current;
       const gameCopy = new Chess(currentFen);
+
       try {
         const move = gameCopy.move({ from: sourceSquare, to: targetSquare, promotion: 'q' });
-        if (!move) return false;
-        updateActiveSession(s => ({
-          ...s,
+        if (!move) {
+          return false;
+        }
+
+        updateActiveSession((session) => ({
+          ...session,
           fen: gameCopy.fen(),
-          undoStack: [...s.undoStack, { fen: currentFen, san: move.san }],
+          undoStack: [...session.undoStack, { fen: currentFen, san: move.san }],
           redoStack: [],
-          lastMove: { from: move.from, to: move.to }
+          lastMove: { from: move.from, to: move.to },
         }));
         return true;
       } catch {
@@ -424,13 +719,21 @@ function App() {
     [updateActiveSession]
   );
 
-  const moveHistory = useMemo(() => undoStack.map((e) => e.san), [undoStack]);
+  const moveHistory = useMemo(() => undoStack.map((entry) => entry.san), [undoStack]);
 
   const gameStatus = useMemo(() => {
-    if (game.isCheckmate()) return 'checkmate';
-    if (game.isStalemate()) return 'stalemate';
-    if (game.isDraw()) return 'draw';
-    if (game.isCheck()) return 'check';
+    if (game.isCheckmate()) {
+      return 'checkmate';
+    }
+    if (game.isStalemate()) {
+      return 'stalemate';
+    }
+    if (game.isDraw()) {
+      return 'draw';
+    }
+    if (game.isCheck()) {
+      return 'check';
+    }
     return '';
   }, [game]);
 
@@ -438,46 +741,66 @@ function App() {
     const styles: Record<string, React.CSSProperties> = {};
     if (lastMove) {
       styles[lastMove.from] = { backgroundColor: 'rgba(255, 255, 100, 0.35)' };
-      styles[lastMove.to]   = { backgroundColor: 'rgba(255, 255, 100, 0.55)' };
+      styles[lastMove.to] = { backgroundColor: 'rgba(255, 255, 100, 0.55)' };
     }
+
     if (game.isCheck()) {
       const board = game.board();
       const turn = game.turn();
       for (const row of board) {
-        for (const sq of row) {
-          if (sq && sq.type === 'k' && sq.color === turn) {
-            styles[sq.square] = { backgroundColor: 'rgba(255, 60, 60, 0.65)' };
+        for (const square of row) {
+          if (square && square.type === 'k' && square.color === turn) {
+            styles[square.square] = { backgroundColor: 'rgba(255, 60, 60, 0.65)' };
           }
         }
       }
     }
+
     return styles;
   }, [lastMove, game]);
 
   const arrows = useMemo(() => {
-    const list: any[] = [];
-    
+    const list: Array<{ startSquare: string; endSquare: string; color: string }> = [];
+
     if (multiPvs.length === 0 && bestMoveUCI && bestMoveUCI.length >= 4) {
-      list.push({ startSquare: bestMoveUCI.slice(0, 2), endSquare: bestMoveUCI.slice(2, 4), color: '#33cc33' });
+      list.push({
+        startSquare: bestMoveUCI.slice(0, 2),
+        endSquare: bestMoveUCI.slice(2, 4),
+        color: '#33cc33',
+      });
       return list;
     }
 
     for (const line of multiPvs) {
-       if (!line.pv || line.pv.length === 0) continue;
-       const firstMove = line.pv[0];
-       
-       if (line.multipv === 1) {
-         list.push({ startSquare: firstMove.slice(0, 2), endSquare: firstMove.slice(2, 4), color: '#33cc33' });
-         
-         if (line.pv.length > 1) {
-           const secondMove = line.pv[1];
-           list.push({ startSquare: secondMove.slice(0, 2), endSquare: secondMove.slice(2, 4), color: '#ff3333' });
-         }
-       } else {
-         list.push({ startSquare: firstMove.slice(0, 2), endSquare: firstMove.slice(2, 4), color: '#3399ff' });
-       }
+      if (!line.pv || line.pv.length === 0) {
+        continue;
+      }
+
+      const firstMove = line.pv[0];
+      if (line.multipv === 1) {
+        list.push({
+          startSquare: firstMove.slice(0, 2),
+          endSquare: firstMove.slice(2, 4),
+          color: '#33cc33',
+        });
+
+        if (line.pv.length > 1) {
+          const secondMove = line.pv[1];
+          list.push({
+            startSquare: secondMove.slice(0, 2),
+            endSquare: secondMove.slice(2, 4),
+            color: '#ff3333',
+          });
+        }
+      } else {
+        list.push({
+          startSquare: firstMove.slice(0, 2),
+          endSquare: firstMove.slice(2, 4),
+          color: '#3399ff',
+        });
+      }
     }
-    
+
     return list;
   }, [bestMoveUCI, multiPvs]);
 
@@ -499,7 +822,7 @@ function App() {
         }}
       />
     ),
-    [activeSessionId, game, boardOrientation, onDrop, squareStyles, arrows]
+    [activeSessionId, arrows, boardOrientation, game, onDrop, squareStyles]
   );
 
   return (
@@ -514,6 +837,13 @@ function App() {
         setEngineDepth={setEngineDepth}
         aiCoachEnabled={aiCoachEnabled}
         setAiCoachEnabled={setAiCoachEnabled}
+        syncToken={syncToken}
+        setSyncToken={setSyncToken}
+        onSyncNow={() => {
+          void syncNow();
+        }}
+        syncStatus={syncStatus}
+        isSyncing={isSyncing}
         coachProps={{
           evaluation,
           bestMoveSAN,
@@ -527,7 +857,7 @@ function App() {
       />
 
       <div className="main-board glass-panel">
-        <SessionTabs 
+        <SessionTabs
           sessions={sessions}
           activeId={activeSessionId}
           onSelect={setActiveSessionId}
@@ -535,7 +865,7 @@ function App() {
           onClose={handleCloseTab}
           onRename={handleRenameTab}
         />
-        
+
         <BoardControls
           bestMoveSAN={bestMoveSAN}
           evaluation={evaluation}
@@ -546,25 +876,17 @@ function App() {
         />
         <div className="board-wrapper">
           <div className="board-with-eval">
-            <div 
-              className="vertical-eval-bar" 
+            <div
+              className="vertical-eval-bar"
               style={{ flexDirection: boardOrientation === 'black' ? 'column' : 'column-reverse' }}
             >
-              <div
-                className="vertical-eval-fill"
-                style={{ height: `${evalPercent}%` }}
-              />
+              <div className="vertical-eval-fill" style={{ height: `${evalPercent}%` }} />
             </div>
             {memoizedChessboard}
           </div>
         </div>
         <div className="fen-display-row">
-          <input
-            type="text"
-            readOnly
-            value={game.fen()}
-            className="premium-input fen-readonly"
-          />
+          <input type="text" readOnly value={game.fen()} className="premium-input fen-readonly" />
           <div style={{ display: 'flex', gap: '8px' }}>
             <button className="btn-primary copy-btn" onClick={handleCopyFen}>
               <FaCopy /> {copied ? 'Copied!' : 'Copy FEN'}
