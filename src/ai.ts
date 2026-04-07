@@ -1,6 +1,25 @@
+export interface CoachLine {
+  rank: number;
+  cp?: number;
+  mate?: number;
+  uci: string[];
+  san: string[];
+}
+
+export interface CoachRequestPayload {
+  fen: string;
+  move: string;
+  moveUci?: string;
+  evaluation?: string;
+  scoreCp?: number;
+  scoreMate?: number;
+  engineDepth?: number;
+  topLines?: CoachLine[];
+  recentMoves?: string[];
+}
+
 export const getCoachFeedback = async (
-  fen: string,
-  move: string,
+  payload: CoachRequestPayload,
   onChunk: (text: string) => void,
   signal?: AbortSignal
 ) => {
@@ -10,7 +29,7 @@ export const getCoachFeedback = async (
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ fen, move }),
+      body: JSON.stringify(payload),
       signal,
     });
 

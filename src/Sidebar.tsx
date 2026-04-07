@@ -1,47 +1,58 @@
-import { FaChessBoard, FaRobot, FaTrash } from 'react-icons/fa';
+import { FaChessBoard, FaCog, FaRobot, FaTrash } from 'react-icons/fa';
 import { CoachPanel } from './CoachPanel';
 
 interface SidebarProps {
+  activeGameName: string;
+  sessionCount: number;
   fenInput: string;
   setFenInput: (v: string) => void;
   onReset: () => void;
+  onOpenSettings: () => void;
   fenError: string;
   moveHistory: string[];
   engineDepth: number;
   setEngineDepth: (d: number) => void;
   aiCoachEnabled: boolean;
   setAiCoachEnabled: (v: boolean) => void;
-  syncToken: string;
-  setSyncToken: (v: string) => void;
-  onSyncNow: () => void;
-  syncStatus: string;
-  isSyncing: boolean;
   coachProps: React.ComponentProps<typeof CoachPanel>;
 }
 
 export function Sidebar({
+  activeGameName,
+  sessionCount,
   fenInput,
   setFenInput,
   onReset,
+  onOpenSettings,
   fenError,
   moveHistory,
   engineDepth,
   setEngineDepth,
   aiCoachEnabled,
   setAiCoachEnabled,
-  syncToken,
-  setSyncToken,
-  onSyncNow,
-  syncStatus,
-  isSyncing,
   coachProps,
 }: SidebarProps) {
   return (
     <div className="sidebar glass-panel">
       {/* Header */}
       <div className="header">
-        <img src="/favicon.svg" alt="CarlZen Logo" className="logo" />
-        <h1>CarlZen</h1>
+        <div className="logo-shell">
+          <img src="/favicon.svg" alt="CarlZen Logo" className="logo" />
+        </div>
+        <div className="brand-block">
+          <p className="brand-kicker">AI Chess Coach</p>
+          <div className="brand-row">
+            <h1>CarlZen</h1>
+            <button className="brand-settings-btn" onClick={onOpenSettings} title="Open settings">
+              <FaCog />
+            </button>
+          </div>
+          <p className="brand-copy">Stockfish precision with fast strategic explanations and synced study sessions.</p>
+          <div className="brand-meta">
+            <span>{sessionCount} {sessionCount === 1 ? 'game' : 'games'}</span>
+            <span>{activeGameName}</span>
+          </div>
+        </div>
       </div>
 
       {/* Board Setup */}
@@ -81,29 +92,9 @@ export function Sidebar({
               <span>Fast</span><span>Strong</span>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div className="panel-content">
-        <h3>Sync</h3>
-        <div className="input-group">
-          <input
-            type="text"
-            placeholder="Enter your sync token..."
-            value={syncToken}
-            onChange={(e) => setSyncToken(e.target.value)}
-            className="premium-input"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-          />
           <p className="helper-text">
-            Use the same token on each device to sync your saved games.
+            Sync, backups, and installation live in Settings so the main workspace stays focused.
           </p>
-          <button className="btn-secondary" onClick={onSyncNow} disabled={isSyncing || !syncToken.trim()}>
-            {isSyncing ? 'Syncing...' : 'Sync Now'}
-          </button>
-          <p className="sync-status-text">{syncStatus}</p>
         </div>
       </div>
 
