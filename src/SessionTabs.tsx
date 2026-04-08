@@ -25,21 +25,23 @@ interface SessionTabsProps {
 export function SessionTabs({ sessions, activeId, onSelect, onAdd, onClose, onRename }: SessionTabsProps) {
   return (
     <div className="tabs-container">
-      {sessions.map(s => (
-        <div 
-          key={s.id} 
-          className={`tab ${s.id === activeId ? 'active' : ''}`}
-          onClick={() => onSelect(s.id)}
+      {sessions.map((session) => (
+        <div
+          key={session.id}
+          className={`tab ${session.id === activeId ? 'active' : ''}`}
+          onClick={() => onSelect(session.id)}
           onDoubleClick={(e) => {
             e.stopPropagation();
-            const newName = prompt('Rename tab:', s.name);
-            if (newName && newName.trim()) onRename(s.id, newName.trim());
+            const newName = prompt('Rename game:', session.name);
+            if (newName && newName.trim()) {
+              onRename(session.id, newName.trim());
+            }
           }}
           title="Double-click to rename"
         >
-          <span className="tab-name">{s.name}</span>
+          <span className="tab-name">{session.name}</span>
           {sessions.length > 1 && (
-            <button className="tab-close" onClick={(e) => onClose(s.id, e)} title="Close tab">
+            <button className="tab-close" onClick={(e) => onClose(session.id, e)} title="Close game">
               <FaTimes />
             </button>
           )}

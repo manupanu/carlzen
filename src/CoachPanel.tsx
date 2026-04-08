@@ -5,6 +5,10 @@ interface CoachPanelProps {
   bestMoveSAN: string;
   coachAdvice: string;
   isCoaching: boolean;
+  isAnalyzing: boolean;
+  analysisStatus: string;
+  analysisProgress: number;
+  analysisProgressLabel: string;
   isEngineReady: boolean;
   gameStatus: string;         // '', 'check', 'checkmate', 'stalemate', 'draw'
   makeBestMove: () => void;
@@ -23,6 +27,10 @@ export function CoachPanel({
   bestMoveSAN,
   coachAdvice,
   isCoaching,
+  isAnalyzing,
+  analysisStatus,
+  analysisProgress,
+  analysisProgressLabel,
   isEngineReady,
   gameStatus,
   makeBestMove,
@@ -48,6 +56,15 @@ export function CoachPanel({
         <p className="pulse-text" style={{ marginTop: '12px' }}>Game over — reset or load a new position.</p>
       ) : bestMoveSAN ? (
         <>
+          <div className={`analysis-status-slot ${analysisStatus ? 'visible' : 'empty'}`}>
+            <p className="analysis-status-text">{analysisStatus || ' '}</p>
+          </div>
+          <div className="analysis-progress-block">
+            <div className="analysis-progress-track" aria-hidden="true">
+              <div className="analysis-progress-fill" style={{ width: `${analysisProgress}%` }} />
+            </div>
+            <div className="analysis-progress-label">{analysisProgressLabel || ' '}</div>
+          </div>
           {/* Eval badge */}
           <div className="eval-text-row">
             <span className="eval-label">Evaluation: {evaluation}</span>
@@ -79,7 +96,17 @@ export function CoachPanel({
           )}
         </>
       ) : (
-        <p className="pulse-text">Analyzing position with Stockfish 18…</p>
+        <>
+          <div className={`analysis-status-slot ${analysisStatus ? 'visible' : 'empty'}`}>
+            <p className="analysis-status-text">{analysisStatus || ' '}</p>
+          </div>
+          <div className="analysis-progress-block">
+            <div className="analysis-progress-track" aria-hidden="true">
+              <div className="analysis-progress-fill" style={{ width: `${analysisProgress}%` }} />
+            </div>
+            <div className="analysis-progress-label">{analysisProgressLabel || (isAnalyzing ? 'Analyzing…' : 'Waiting for analysis…')}</div>
+          </div>
+        </>
       )}
     </div>
   );

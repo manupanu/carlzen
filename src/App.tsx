@@ -18,6 +18,7 @@ const SYNC_TOKEN_KEY = 'carlzen_sync_token';
 const SYNC_UPDATED_AT_KEY = 'carlzen_sync_updated_at';
 const ENGINE_DEPTH_KEY = 'carlzen_engine_depth';
 const WELCOME_DISMISSED_KEY = 'carlzen_welcome_dismissed';
+const PREVIEW_ENGINE_DEPTH = 4;
 const START_FEN = new Chess().fen();
 
 interface BeforeInstallPromptEvent extends Event {
@@ -163,6 +164,12 @@ function isSamePvLine(left: MultiPvLine, right: MultiPvLine): boolean {
   );
 }
 
+function uciToSan(fen: string, uciMove: string): string {
+  const game = new Chess(fen);
+  const move = game.move(uciMove);
+  return move.san;
+}
+
 function App() {
   const [sessions, setSessions] = useState<Session[]>(() => {
     const saved = localStorage.getItem(SESSIONS_KEY);
@@ -227,6 +234,10 @@ function App() {
   const [multiPvs, setMultiPvs] = useState<MultiPvLine[]>([]);
   const [coachAdvice, setCoachAdvice] = useState('');
   const [isCoaching, setIsCoaching] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState('');
+  const [analysisDepth, setAnalysisDepth] = useState(0);
+  const [analysisStage, setAnalysisStage] = useState<'idle' | 'preview' | 'full'>('idle');
   const [aiCoachEnabled, setAiCoachEnabled] = useState(() => {
     const saved = localStorage.getItem(AI_COACH_KEY);
     return saved !== null ? saved === 'true' : false;
@@ -246,7 +257,16 @@ function App() {
   const aiCoachEnabledRef = useRef(aiCoachEnabled);
   const engineScoreRef = useRef(engineScore);
   const multiPvsRef = useRef(multiPvs);
+  const evaluationRef = useRef(evaluation);
+  const isOnlineRef = useRef(isOnline);
   const moveHistoryRef = useRef<string[]>([]);
+  const activeSearchIdRef = useRef(0);
+  const coachRequestIdRef = useRef(0);
+  const coachPositionKeyRef = useRef('');
+  const analysisTargetDepthRef = useRef(engineDepth);
+  const analysisPreviewDepthRef = useRef(Math.min(engineDepth, PREVIEW_ENGINE_DEPTH));
+  const analysisFenRef = useRef(game.fen());
+  const analysisNeedsFullSearchRef = useRef(false);
   const applyingRemoteStateRef = useRef(false);
   const repairingActiveSessionRef = useRef(false);
   const hasTrackedInitialStateRef = useRef(false);
@@ -338,9 +358,18 @@ function App() {
   }, [multiPvs]);
 
   useEffect(() => {
+    evaluationRef.current = evaluation;
+  }, [evaluation]);
+
+  useEffect(() => {
+    isOnlineRef.current = isOnline;
+  }, [isOnline]);
+
+  useEffect(() => {
     localStorage.setItem(AI_COACH_KEY, String(aiCoachEnabled));
     if (!aiCoachEnabled) {
       abortControllerRef.current?.abort();
+      coachPositionKeyRef.current = '';
       setCoachAdvice('');
       setIsCoaching(false);
     }
@@ -382,13 +411,25 @@ function App() {
     };
   }, []);
 
+  const prepareAnalysisSearch = useCallback((fen: string, depth: number, statusLabel: string) => {
+    analysisTargetDepthRef.current = depth;
+    analysisFenRef.current = fen;
+    analysisPreviewDepthRef.current = depth > PREVIEW_ENGINE_DEPTH ? PREVIEW_ENGINE_DEPTH : depth;
+    analysisNeedsFullSearchRef.current = depth > PREVIEW_ENGINE_DEPTH;
+    setAnalysisStatus(statusLabel);
+    setAnalysisDepth(0);
+    setAnalysisStage('preview');
+    setIsAnalyzing(true);
+  }, []);
+
   const fetchCoachingAdvice = useCallback(async (fen: string, move: string, moveUci?: string) => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = new AbortController();
+    const requestId = coachRequestIdRef.current + 1;
+    coachRequestIdRef.current = requestId;
     setIsCoaching(true);
-    setCoachAdvice('');
 
-    if (!isOnline) {
+    if (!isOnlineRef.current) {
       setCoachAdvice('AI Coach is unavailable offline. Please rely on local Stockfish evaluation.');
       setIsCoaching(false);
       return;
@@ -405,25 +446,62 @@ function App() {
         san: uciLineToSan(fen, line.pv.slice(0, 6)),
       }));
 
-    await getCoachFeedback(
-      {
-        fen,
-        move,
-        moveUci,
-        evaluation,
-        scoreCp: engineScoreRef.current?.cp,
-        scoreMate: engineScoreRef.current?.mate,
-        engineDepth: engineDepthRef.current,
-        topLines,
-        recentMoves: moveHistoryRef.current.slice(-8),
-      },
-      (chunk) => {
-        setCoachAdvice((prev) => prev + chunk);
-      },
-      abortControllerRef.current.signal
-    );
-    setIsCoaching(false);
-  }, [evaluation, isOnline]);
+    let receivedChunk = false;
+
+    try {
+      await getCoachFeedback(
+        {
+          fen,
+          move,
+          moveUci,
+          evaluation: evaluationRef.current,
+          scoreCp: engineScoreRef.current?.cp,
+          scoreMate: engineScoreRef.current?.mate,
+          engineDepth: engineDepthRef.current,
+          topLines,
+          recentMoves: moveHistoryRef.current.slice(-8),
+        },
+        (chunk) => {
+          if (coachRequestIdRef.current !== requestId) {
+            return;
+          }
+
+          if (!receivedChunk) {
+            receivedChunk = true;
+            setCoachAdvice(chunk);
+            return;
+          }
+
+          setCoachAdvice((prev) => prev + chunk);
+        },
+        abortControllerRef.current.signal
+      );
+    } catch (error) {
+      if (abortControllerRef.current.signal.aborted || coachRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      console.error('Failed to fetch coaching advice:', error);
+      coachPositionKeyRef.current = '';
+      setCoachAdvice('AI Coach is unavailable right now.');
+    } finally {
+      if (coachRequestIdRef.current === requestId) {
+        setIsCoaching(false);
+      }
+    }
+  }, []);
+
+  const requestCoachingAdvice = useCallback(
+    (fen: string, move: string, moveUci: string | undefined) => {
+      if (!aiCoachEnabledRef.current || coachPositionKeyRef.current === fen) {
+        return;
+      }
+
+      coachPositionKeyRef.current = fen;
+      void fetchCoachingAdvice(fen, move, moveUci);
+    },
+    [fetchCoachingAdvice]
+  );
 
   const applyRemoteState = useCallback((state: SyncState) => {
     const normalizedSessions = normalizeSessions(state.sessions, state.updatedAt);
@@ -519,27 +597,54 @@ function App() {
     engineRef.current = new Engine((msg) => {
       if (msg.type === 'ready') {
         setIsEngineReady(true);
-        engineRef.current?.evaluatePosition(gameFenRef.current, engineDepthRef.current);
       } else if (msg.type === 'bestmove') {
+        if (msg.searchId !== activeSearchIdRef.current) {
+          return;
+        }
+
         const uciMove = msg.data;
         setBestMoveUCI(uciMove);
-        const gameCopy = new Chess(gameFenRef.current);
+        let resolvedMoveText = uciMove;
 
         try {
-          const moveObj = gameCopy.move(uciMove);
-          setBestMoveSAN(moveObj.san);
-          if (aiCoachEnabledRef.current) {
-            void fetchCoachingAdvice(gameFenRef.current, moveObj.san, uciMove);
-          }
+          resolvedMoveText = uciToSan(gameFenRef.current, uciMove);
+          setBestMoveSAN(resolvedMoveText);
         } catch {
           console.error('Invalid move from engine:', uciMove);
           setBestMoveSAN(uciMove);
-          if (aiCoachEnabledRef.current) {
-            void fetchCoachingAdvice(gameFenRef.current, uciMove, uciMove);
-          }
+        }
+
+        if (analysisNeedsFullSearchRef.current && analysisTargetDepthRef.current > analysisPreviewDepthRef.current) {
+          analysisNeedsFullSearchRef.current = false;
+          setAnalysisStatus(`Refining to depth ${analysisTargetDepthRef.current}…`);
+          setAnalysisStage('full');
+          setAnalysisDepth(0);
+          setIsAnalyzing(true);
+
+          const nextSearchId = activeSearchIdRef.current + 1;
+          activeSearchIdRef.current = nextSearchId;
+          engineRef.current?.evaluatePosition(
+            analysisFenRef.current,
+            analysisTargetDepthRef.current,
+            nextSearchId
+          );
+        } else {
+          requestCoachingAdvice(gameFenRef.current, resolvedMoveText, uciMove);
+          setIsAnalyzing(false);
+          setAnalysisStatus('');
+          setAnalysisStage('idle');
+          setAnalysisDepth(analysisTargetDepthRef.current);
         }
       } else if (msg.type === 'eval') {
-        const { cp, mate, multipv, pv } = msg.result;
+        if (msg.searchId !== activeSearchIdRef.current) {
+          return;
+        }
+
+        const { cp, mate, multipv, pv, depth } = msg.result;
+
+        if (typeof depth === 'number' && Number.isFinite(depth)) {
+          setAnalysisDepth(depth);
+        }
 
         if (pv && multipv) {
           setMultiPvs((prev) => {
@@ -559,6 +664,17 @@ function App() {
         }
 
         if (multipv === 1 || !multipv) {
+          const firstMove = pv?.[0];
+
+          if (firstMove && firstMove.length >= 4) {
+            setBestMoveUCI(firstMove);
+            try {
+              setBestMoveSAN(uciToSan(gameFenRef.current, firstMove));
+            } catch {
+              setBestMoveSAN(firstMove);
+            }
+          }
+
           if (mate !== undefined) {
             const color = mate > 0 ? 'White' : 'Black';
             setEvaluation(`Mate in ${Math.abs(mate)} for ${color}`);
@@ -575,7 +691,7 @@ function App() {
     });
 
     return () => engineRef.current?.quit();
-  }, [fetchCoachingAdvice]);
+  }, [fetchCoachingAdvice, prepareAnalysisSearch, requestCoachingAdvice]);
 
   useEffect(() => {
     if (!engineRef.current) {
@@ -583,21 +699,27 @@ function App() {
     }
 
     engineRef.current.stop();
-    setBestMoveUCI('');
-    setBestMoveSAN('');
-    setCoachAdvice('');
-    setEvaluation('');
-    setEvalPercent(50);
-    setEngineScore(null);
-    setMultiPvs([]);
     abortControllerRef.current?.abort();
+    prepareAnalysisSearch(
+      game.fen(),
+      engineDepthRef.current,
+      engineDepthRef.current > PREVIEW_ENGINE_DEPTH
+        ? `Previewing at depth ${PREVIEW_ENGINE_DEPTH} of ${engineDepthRef.current}…`
+        : `Analyzing position at depth ${engineDepthRef.current}…`
+    );
 
     const timerId = window.setTimeout(() => {
-      engineRef.current?.evaluatePosition(game.fen(), engineDepthRef.current);
+      const searchId = activeSearchIdRef.current + 1;
+      activeSearchIdRef.current = searchId;
+      engineRef.current?.evaluatePosition(
+        game.fen(),
+        Math.min(engineDepthRef.current, PREVIEW_ENGINE_DEPTH),
+        searchId
+      );
     }, 300);
 
     return () => window.clearTimeout(timerId);
-  }, [game]);
+  }, [game, prepareAnalysisSearch]);
 
   useEffect(() => {
     if (!isEngineReady || !engineRef.current) {
@@ -605,19 +727,26 @@ function App() {
     }
 
     engineRef.current.stop();
-    setBestMoveUCI('');
-    setBestMoveSAN('');
-    setEvaluation('');
-    setEvalPercent(50);
-    setEngineScore(null);
-    setMultiPvs([]);
+    prepareAnalysisSearch(
+      gameFenRef.current,
+      engineDepth,
+      engineDepth > PREVIEW_ENGINE_DEPTH
+        ? `Previewing at depth ${PREVIEW_ENGINE_DEPTH} of ${engineDepth}…`
+        : `Analyzing position at depth ${engineDepth}…`
+    );
 
     const timerId = window.setTimeout(() => {
-      engineRef.current?.evaluatePosition(gameFenRef.current, engineDepth);
+      const searchId = activeSearchIdRef.current + 1;
+      activeSearchIdRef.current = searchId;
+      engineRef.current?.evaluatePosition(
+        gameFenRef.current,
+        Math.min(engineDepth, PREVIEW_ENGINE_DEPTH),
+        searchId
+      );
     }, 300);
 
     return () => window.clearTimeout(timerId);
-  }, [engineDepth, isEngineReady]);
+  }, [engineDepth, isEngineReady, prepareAnalysisSearch]);
 
   const handleAddTab = () => {
     const timestamp = Date.now();
@@ -953,6 +1082,46 @@ function App() {
     return '';
   }, [game]);
 
+  const analysisProgress = useMemo(() => {
+    if (analysisStage === 'idle') {
+      return 100;
+    }
+
+    const targetDepth = Math.max(1, analysisTargetDepthRef.current);
+    const previewDepth = Math.max(1, analysisPreviewDepthRef.current);
+    const currentDepth = Math.max(0, analysisDepth);
+
+    if (analysisStage === 'preview' && targetDepth > previewDepth) {
+      return Math.min(45, Math.round((currentDepth / previewDepth) * 45));
+    }
+
+    if (analysisStage === 'full' && targetDepth > previewDepth) {
+      return Math.min(100, 45 + Math.round((currentDepth / targetDepth) * 55));
+    }
+
+    return Math.min(100, Math.round((currentDepth / targetDepth) * 100));
+  }, [analysisDepth, analysisStage]);
+
+  const analysisProgressLabel = useMemo(() => {
+    if (analysisStage === 'idle') {
+      return '';
+    }
+
+    const targetDepth = Math.max(1, analysisTargetDepthRef.current);
+    const previewDepth = Math.max(1, analysisPreviewDepthRef.current);
+    const currentDepth = Math.max(0, analysisDepth);
+
+    if (analysisStage === 'preview' && targetDepth > previewDepth) {
+      return `Preview ${Math.min(currentDepth, previewDepth)}/${previewDepth}`;
+    }
+
+    if (analysisStage === 'full' && targetDepth > previewDepth) {
+      return `Refining ${Math.min(currentDepth, targetDepth)}/${targetDepth}`;
+    }
+
+    return `Analyzing ${Math.min(currentDepth, targetDepth)}/${targetDepth}`;
+  }, [analysisDepth, analysisStage]);
+
   const squareStyles = useMemo(() => {
     const styles: Record<string, React.CSSProperties> = {};
     if (lastMove) {
@@ -1064,8 +1233,6 @@ function App() {
         }}
       />
       <Sidebar
-        activeGameName={activeSession.name}
-        sessionCount={sessions.length}
         fenInput={fenInput}
         setFenInput={setFenInput}
         onReset={handleReset}
@@ -1081,6 +1248,10 @@ function App() {
           bestMoveSAN,
           coachAdvice,
           isCoaching,
+          isAnalyzing,
+          analysisStatus,
+          analysisProgress,
+          analysisProgressLabel,
           isEngineReady,
           gameStatus,
           makeBestMove,

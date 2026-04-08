@@ -1,4 +1,5 @@
 export interface EvalResult {
+  depth?: number;   // current search depth reported by Stockfish
   cp?: number;       // centipawns (absolute, from white's perspective)
   mate?: number;     // positive = white mates, negative = black mates
   multipv?: number;  // which PV line this is
@@ -7,16 +8,18 @@ export interface EvalResult {
 
 export type EngineMessage =
   | { type: 'ready' }
-  | { type: 'bestmove'; data: string }
-  | { type: 'eval'; result: EvalResult };
+  | { type: 'bestmove'; data: string; searchId: number }
+  | { type: 'eval'; result: EvalResult; searchId: number };
 
 export class Engine {
   private stockfish: Worker;
   private onMessage: (msg: EngineMessage) => void;
   private isReady = false;
   private isSearching = false;
-  private pendingGo: { fen: string; depth: number } | null = null;
+  private pendingGo: { fen: string; depth: number; searchId: number } | null = null;
   private currentFen = '';
+  private activeSearchId = 0;
+  private nextSearchId = 1;
 
   constructor(onMessage: (msg: EngineMessage) => void) {
     this.onMessage = onMessage;
@@ -44,14 +47,15 @@ export class Engine {
         if (this.pendingGo) {
           const next = this.pendingGo;
           this.pendingGo = null;
-          this.evaluatePosition(next.fen, next.depth);
+          this.evaluatePosition(next.fen, next.depth, next.searchId);
         } else if (match) {
-          this.onMessage({ type: 'bestmove', data: match[1] });
+          this.onMessage({ type: 'bestmove', data: match[1], searchId: this.activeSearchId });
         }
       } else if (line.startsWith('info depth')) {
         // If we have a pending go, we are technically stopping, so we can ignore stale evals
         if (this.pendingGo) return;
         
+        const depthMatch = line.match(/info depth (\d+)/);
         const scoreMatch = line.match(/score (cp|mate) (-?\d+)/);
         if (scoreMatch) {
           const type = scoreMatch[1];
@@ -66,10 +70,11 @@ export class Engine {
           const pv = pvMatch ? pvMatch[1].trim().split(' ') : [];
 
           const result: EvalResult = { multipv, pv };
+          if (depthMatch) result.depth = parseInt(depthMatch[1], 10);
           if (type === 'cp') result.cp = absoluteScore;
           else result.mate = absoluteScore;
 
-          this.onMessage({ type: 'eval', result });
+          this.onMessage({ type: 'eval', result, searchId: this.activeSearchId });
         }
       }
     };
@@ -77,19 +82,23 @@ export class Engine {
     this.stockfish.postMessage('uci');
   }
 
-  public evaluatePosition(fen: string, depth: number = 18) {
+  public evaluatePosition(fen: string, depth: number = 18, searchId?: number) {
     if (!this.isReady) return;
-    
+
+    const resolvedSearchId = searchId ?? this.nextSearchId++;
+
     if (this.isSearching) {
-      this.pendingGo = { fen, depth };
+      this.pendingGo = { fen, depth, searchId: resolvedSearchId };
       this.stockfish.postMessage('stop');
-      return;
+      return resolvedSearchId;
     }
 
     this.isSearching = true;
     this.currentFen = fen;
+    this.activeSearchId = resolvedSearchId;
     this.stockfish.postMessage(`position fen ${fen}`);
     this.stockfish.postMessage(`go depth ${depth}`);
+    return resolvedSearchId;
   }
 
   public stop() {

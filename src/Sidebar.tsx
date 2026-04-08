@@ -2,8 +2,6 @@ import { FaChessBoard, FaCog, FaRobot, FaTrash } from 'react-icons/fa';
 import { CoachPanel } from './CoachPanel';
 
 interface SidebarProps {
-  activeGameName: string;
-  sessionCount: number;
   fenInput: string;
   setFenInput: (v: string) => void;
   onReset: () => void;
@@ -18,8 +16,6 @@ interface SidebarProps {
 }
 
 export function Sidebar({
-  activeGameName,
-  sessionCount,
   fenInput,
   setFenInput,
   onReset,
@@ -40,17 +36,11 @@ export function Sidebar({
           <img src="/favicon.svg" alt="CarlZen Logo" className="logo" />
         </div>
         <div className="brand-block">
-          <p className="brand-kicker">AI Chess Coach</p>
           <div className="brand-row">
             <h1>CarlZen</h1>
             <button className="brand-settings-btn" onClick={onOpenSettings} title="Open settings">
               <FaCog />
             </button>
-          </div>
-          <p className="brand-copy">Stockfish precision with fast strategic explanations and synced study sessions.</p>
-          <div className="brand-meta">
-            <span>{sessionCount} {sessionCount === 1 ? 'game' : 'games'}</span>
-            <span>{activeGameName}</span>
           </div>
         </div>
       </div>
@@ -92,9 +82,6 @@ export function Sidebar({
               <span>Fast</span><span>Strong</span>
             </div>
           </div>
-          <p className="helper-text">
-            Sync, backups, and installation live in Settings so the main workspace stays focused.
-          </p>
         </div>
       </div>
 

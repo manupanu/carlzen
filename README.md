@@ -52,6 +52,7 @@
    # Optional: use an OpenAI-compatible provider such as Groq
    # AI_BASE_URL=https://api.groq.com/openai/v1
    ```
+   `NODE_ENV` is managed by Docker/your run mode and should not be added to `.env`.
 
 4. **Run the application:**
    To run both the frontend development server and the backend proxy:
@@ -83,6 +84,7 @@ For easy deployment, you can use Docker and Docker Compose. This setup bundles t
    # Optional: use an OpenAI-compatible provider such as Groq
    # AI_BASE_URL=https://api.groq.com/openai/v1
    ```
+   `NODE_ENV` is handled by Docker/your runtime and should not be set in this file.
 
 2. **Run with Docker Compose:**
    ```bash
