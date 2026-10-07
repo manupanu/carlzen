@@ -60,7 +60,7 @@ export function CoachPanel({
             <p className="analysis-status-text">{analysisStatus || ' '}</p>
           </div>
           <div className="analysis-progress-block">
-            <div className="analysis-progress-track" aria-hidden="true">
+            <div className="analysis-progress-track" role="progressbar" aria-label="Analysis progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(analysisProgress)}>
               <div className="analysis-progress-fill" style={{ width: `${analysisProgress}%` }} />
             </div>
             <div className="analysis-progress-label">{analysisProgressLabel || ' '}</div>
@@ -81,7 +81,7 @@ export function CoachPanel({
             <FaRobot /> Play Best Move
           </button>
           {isAiSummaryEnabled && (
-            <div className="ai-advice-container">
+            <div className="ai-advice-container" aria-live="polite" aria-busy={isCoaching}>
               {isCoaching && !coachAdvice ? (
                 <p className="ai-advice-text pulse-text" style={{ opacity: 0.8, fontStyle: 'italic' }}>
                   CarlZen is formulating advice...
@@ -101,7 +101,7 @@ export function CoachPanel({
             <p className="analysis-status-text">{analysisStatus || ' '}</p>
           </div>
           <div className="analysis-progress-block">
-            <div className="analysis-progress-track" aria-hidden="true">
+            <div className="analysis-progress-track" role="progressbar" aria-label="Analysis progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(analysisProgress)}>
               <div className="analysis-progress-fill" style={{ width: `${analysisProgress}%` }} />
             </div>
             <div className="analysis-progress-label">{analysisProgressLabel || (isAnalyzing ? 'Analyzing…' : 'Waiting for analysis…')}</div>

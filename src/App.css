@@ -1226,3 +1226,23 @@
   font-size: 0.85rem;
   opacity: 0.8;
 }
+
+/* Keyboard focus is always visible. */
+button:focus-visible,
+input:focus-visible,
+.tab:focus-visible,
+.import-btn:focus-within {
+  outline: 2px solid #7cc4ff;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -25,31 +25,48 @@ interface SessionTabsProps {
 }
 
 export function SessionTabs({ sessions, activeId, onSelect, onAdd, onClose, onRename }: SessionTabsProps) {
+  const rename = (session: Session) => {
+    const newName = prompt('Rename game:', session.name);
+    if (newName && newName.trim()) {
+      onRename(session.id, newName.trim());
+    }
+  };
+
   return (
-    <div className="tabs-container">
+    <div className="tabs-container" role="tablist" aria-label="Games">
       {sessions.map((session) => (
         <div
           key={session.id}
           className={`tab ${session.id === activeId ? 'active' : ''}`}
+          role="tab"
+          tabIndex={0}
+          aria-selected={session.id === activeId}
           onClick={() => onSelect(session.id)}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            const newName = prompt('Rename game:', session.name);
-            if (newName && newName.trim()) {
-              onRename(session.id, newName.trim());
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onSelect(session.id);
+            } else if (e.key === 'F2') {
+              e.preventDefault();
+              rename(session);
             }
           }}
-          title="Double-click to rename"
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            rename(session);
+          }}
+          title="Double-click or press F2 to rename"
         >
           <span className="tab-name">{session.name}</span>
           {sessions.length > 1 && (
-            <button className="tab-close" onClick={(e) => onClose(session.id, e)} title="Close game">
+            <button className="tab-close" onClick={(e) => onClose(session.id, e)} title="Close game" aria-label={`Close ${session.name}`}>
               <FaTimes />
             </button>
           )}
         </div>
       ))}
-      <button className="tab-add" onClick={onAdd} title="New Game">
+      <button className="tab-add" onClick={onAdd} title="New Game" aria-label="New game">
         <FaPlus />
       </button>
     </div>

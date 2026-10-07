@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { FaCloud, FaCog, FaDownload, FaUpload } from 'react-icons/fa';
 
 interface SettingsSheetProps {
@@ -15,6 +16,8 @@ interface SettingsSheetProps {
   onInstallApp: () => void;
 }
 
+const MIN_TOKEN_LENGTH = 16;
+
 export function SettingsSheet({
   isOpen,
   onClose,
@@ -29,9 +32,21 @@ export function SettingsSheet({
   canInstall,
   onInstallApp,
 }: SettingsSheetProps) {
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
+
   if (!isOpen) {
     return null;
   }
+
+  const tokenLength = syncToken.trim().length;
+  const tokenTooShort = tokenLength > 0 && tokenLength < MIN_TOKEN_LENGTH;
 
   return (
     <div className="sheet-backdrop" onClick={onClose} role="presentation">
@@ -52,7 +67,7 @@ export function SettingsSheet({
               Configure sync, keep local backups, and install the app for a cleaner full-screen experience.
             </p>
           </div>
-          <button className="btn-secondary settings-close-btn" onClick={onClose}>
+          <button className="btn-secondary settings-close-btn" onClick={onClose} autoFocus>
             Close
           </button>
         </div>
@@ -78,10 +93,17 @@ export function SettingsSheet({
               autoCorrect="off"
               spellCheck={false}
             />
-            <button className="btn-secondary" onClick={onSyncNow} disabled={isSyncing || !syncToken.trim()}>
+            <button className="btn-secondary" onClick={onSyncNow} disabled={isSyncing || tokenLength < MIN_TOKEN_LENGTH}>
               {isSyncing ? 'Syncing...' : 'Sync now'}
             </button>
-            <p className="sync-status-text">{syncStatus}</p>
+            {tokenTooShort && (
+              <p className="sync-status-text">
+                {MIN_TOKEN_LENGTH - tokenLength} more {MIN_TOKEN_LENGTH - tokenLength === 1 ? 'character' : 'characters'} needed.
+              </p>
+            )}
+            <p className="sync-status-text" role="status" aria-live="polite">
+              {syncStatus}
+            </p>
           </section>
 
           <section className="settings-card">

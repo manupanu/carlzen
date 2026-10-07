@@ -53,6 +53,13 @@ interface SessionBackupFile {
   };
 }
 
+function isTypingTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+  );
+}
+
 function App() {
   const [sessions, setSessions] = useState<Session[]>(() => {
     const saved = localStorage.getItem(SESSIONS_KEY);
@@ -753,6 +760,11 @@ function App() {
       return;
     }
 
+    const closing = sessions.find((session) => session.id === id);
+    if (closing && closing.undoStack.length > 0 && !window.confirm(`Close "${closing.name}"? Its moves will be lost.`)) {
+      return;
+    }
+
     setSessions((prev) => {
       const filtered = prev.filter((session) => session.id !== id);
       if (activeSessionId === id && filtered.length > 0) {
@@ -805,18 +817,24 @@ function App() {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+
       const isMac = navigator.platform.toUpperCase().includes('MAC');
       const modifier = isMac ? event.metaKey : event.ctrlKey;
       if (!modifier) {
         return;
       }
 
-      if (event.key === 'z') {
+      const key = event.key.toLowerCase();
+      if (key === 'z' && event.shiftKey) {
+        event.preventDefault();
+        handleRedo();
+      } else if (key === 'z') {
         event.preventDefault();
         handleUndo();
-      }
-
-      if (event.key === 'y') {
+      } else if (key === 'y') {
         event.preventDefault();
         handleRedo();
       }
@@ -833,7 +851,30 @@ function App() {
     }));
   }, [updateActiveSession]);
 
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) {
+        return;
+      }
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        handleUndo();
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        handleRedo();
+      } else if (event.key.toLowerCase() === 'f') {
+        handleFlip();
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleUndo, handleRedo, handleFlip]);
+
   const handleReset = () => {
+    if (undoStack.length > 0 && !window.confirm('Reset this game to the starting position? Its move history will be lost.')) {
+      return;
+    }
     updateActiveSession((session) => ({
       ...session,
       fen: START_FEN,
