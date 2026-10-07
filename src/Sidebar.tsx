@@ -1,6 +1,6 @@
 import { FaChessBoard, FaCog, FaRobot, FaTrash } from 'react-icons/fa';
 import { CoachPanel } from './CoachPanel';
-import { gradeSymbol, type MoveReview } from './live/review';
+import { GRADE_TEXT, gradeSymbol, summarizeReviews, type Grade, type MoveReview } from './live/review';
 
 interface SidebarProps {
   fenInput: string;
@@ -41,6 +41,8 @@ export function Sidebar({
   coachProps,
   liveSlot,
 }: SidebarProps) {
+  const summary = summarizeReviews(moveReviews);
+
   return (
     <div className="sidebar glass-panel">
       {/* Header */}
@@ -145,6 +147,15 @@ export function Sidebar({
               </div>
             ))}
           </div>
+          {summary && (
+            <p className="review-summary">
+              Accuracy {summary.accuracy}% over {summary.moves} reviewed {summary.moves === 1 ? 'move' : 'moves'}
+              {(['inaccuracy', 'mistake', 'blunder'] as Grade[])
+                .filter((g) => summary.counts[g] > 0)
+                .map((g) => ` · ${summary.counts[g]} ${GRADE_TEXT[g].toLowerCase()}${summary.counts[g] === 1 ? '' : 's'}`)
+                .join('')}
+            </p>
+          )}
         </div>
       )}
 
