@@ -16,6 +16,8 @@ interface SidebarProps {
   aiCoachEnabled: boolean;
   setAiCoachEnabled: (v: boolean) => void;
   coachProps: React.ComponentProps<typeof CoachPanel>;
+  /** The Live mode panel, rendered below the board setup. */
+  liveSlot?: React.ReactNode;
 }
 
 export function Sidebar({
@@ -33,6 +35,7 @@ export function Sidebar({
   aiCoachEnabled,
   setAiCoachEnabled,
   coachProps,
+  liveSlot,
 }: SidebarProps) {
   return (
     <div className="sidebar glass-panel">
@@ -114,6 +117,8 @@ export function Sidebar({
           </div>
         </div>
       </div>
+
+      {liveSlot}
 
       {/* Move History */}
       {moveHistory.length > 0 && (

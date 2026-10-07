@@ -9,6 +9,10 @@ import { Sidebar } from './Sidebar';
 import { BoardControls } from './BoardControls';
 import { SettingsSheet } from './SettingsSheet';
 import { SessionTabs, type HistEntry, type Session } from './SessionTabs';
+import { applyLivePosition } from './live/applyPosition';
+import type { LivePosition } from './live/controller';
+import { LivePanel } from './live/LivePanel';
+import { useLiveController } from './live/useLiveController';
 import './App.css';
 
 const AI_COACH_KEY = 'carlzen_ai_coach';
@@ -219,6 +223,16 @@ function App() {
     },
     [activeSessionId]
   );
+
+  const handleLivePosition = useCallback(
+    (position: LivePosition) => {
+      updateActiveSession((session) =>
+        applyLivePosition(session, position.fen, position.flipped ? 'black' : 'white')
+      );
+    },
+    [updateActiveSession]
+  );
+  const { controller: liveController, state: liveState } = useLiveController(handleLivePosition);
 
   const [fenInput, setFenInput] = useState('');
   const [fenError, setFenError] = useState('');
@@ -1261,6 +1275,7 @@ function App() {
         eloRange={eloRange}
         aiCoachEnabled={aiCoachEnabled}
         setAiCoachEnabled={setAiCoachEnabled}
+        liveSlot={<LivePanel controller={liveController} live={liveState} verdict={null} />}
         coachProps={{
           evaluation,
           bestMoveSAN,
