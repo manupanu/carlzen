@@ -10,6 +10,7 @@ import { BoardControls } from './BoardControls';
 import { SettingsSheet } from './SettingsSheet';
 import { SessionTabs, type HistEntry, type Session } from './SessionTabs';
 import { applyLivePosition } from './live/applyPosition';
+import { describeReview, grade, movePlayed, sanitizeReview, winShareLost, type WhiteScore } from './live/review';
 import type { LivePosition } from './live/controller';
 import { LivePanel } from './live/LivePanel';
 import { useLiveController } from './live/useLiveController';
@@ -61,10 +62,8 @@ function normalizeHistoryEntry(value: unknown): HistEntry | null {
     return null;
   }
 
-  return {
-    fen: value.fen,
-    san: value.san,
-  };
+  const review = sanitizeReview(value.review);
+  return review ? { fen: value.fen, san: value.san, review } : { fen: value.fen, san: value.san };
 }
 
 function createSession(
@@ -210,16 +209,23 @@ function App() {
 
   const updateActiveSession = useCallback(
     (updater: (session: Session) => Session) => {
-      setSessions((prev) =>
-        prev.map((session) => {
+      setSessions((prev) => {
+        let changed = false;
+        const next = prev.map((session) => {
           if (session.id !== activeSessionId) {
             return session;
           }
 
           const nextSession = updater(session);
+          if (nextSession === session) {
+            return session;
+          }
+
+          changed = true;
           return { ...nextSession, updatedAt: Date.now() };
-        })
-      );
+        });
+        return changed ? next : prev;
+      });
     },
     [activeSessionId]
   );
@@ -233,6 +239,48 @@ function App() {
     [updateActiveSession]
   );
   const { controller: liveController, state: liveState } = useLiveController(handleLivePosition);
+
+  // Grades for played moves: remember how each position was evaluated, and when the position after a move
+  // has been analysed, compare the two evaluations.
+  const analysedRef = useRef(new Map<string, { score: WhiteScore; bestUci?: string }>());
+  const latestTopRef = useRef<{ fen: string; score: WhiteScore; bestUci?: string } | null>(null);
+  const recordAnalysis = useCallback(
+    (fen: string, score: WhiteScore, bestUci?: string) => {
+      const key = (f: string) => f.split(' ').slice(0, 2).join(' ');
+      const analysed = analysedRef.current;
+      analysed.set(key(fen), { score, bestUci });
+      if (analysed.size > 80) {
+        analysed.delete(analysed.keys().next().value as string);
+      }
+
+      updateActiveSession((session) => {
+        const last = session.undoStack.at(-1);
+        if (!last || last.review || key(session.fen) !== key(fen)) {
+          return session;
+        }
+        const before = analysed.get(key(last.fen));
+        const played = before ? movePlayed(last.fen, fen) : null;
+        if (!before || !played) {
+          return session;
+        }
+
+        const lost = winShareLost(last.fen, before.score, score);
+        const bestSan =
+          before.bestUci && before.bestUci !== played.uci ? uciToSan(last.fen, before.bestUci) : undefined;
+        const review = {
+          grade: grade(lost, played.uci === before.bestUci),
+          lostPct: Math.round(lost * 100),
+          ...(bestSan ? { bestSan } : {}),
+        };
+        return { ...session, undoStack: [...session.undoStack.slice(0, -1), { ...last, review }] };
+      });
+    },
+    [updateActiveSession]
+  );
+  const recordAnalysisRef = useRef(recordAnalysis);
+  useEffect(() => {
+    recordAnalysisRef.current = recordAnalysis;
+  });
 
   const [fenInput, setFenInput] = useState('');
   const [fenError, setFenError] = useState('');
@@ -659,6 +707,10 @@ function App() {
           );
         } else {
           requestCoachingAdvice(gameFenRef.current, resolvedMoveText, uciMove);
+          const top = latestTopRef.current;
+          if (top) {
+            recordAnalysisRef.current(top.fen, top.score, top.bestUci);
+          }
           setIsAnalyzing(false);
           setAnalysisStatus('');
           setAnalysisStage('idle');
@@ -714,6 +766,14 @@ function App() {
             setEvaluation(cp > 0 ? `+${evalStr}` : evalStr);
             setEvalPercent(cpToPercent(cp));
             setEngineScore({ cp });
+          }
+
+          if (mate !== undefined || cp !== undefined) {
+            latestTopRef.current = {
+              fen: analysisFenRef.current,
+              score: mate !== undefined ? { mate } : { cp },
+              bestUci: firstMove && firstMove.length >= 4 ? firstMove : undefined,
+            };
           }
         }
       }
@@ -1090,6 +1150,10 @@ function App() {
   );
 
   const moveHistory = useMemo(() => undoStack.map((entry) => entry.san), [undoStack]);
+  const lastEntry = undoStack.at(-1);
+  const lastVerdict = lastEntry?.review
+    ? { text: describeReview(lastEntry.san, lastEntry.review), grade: lastEntry.review.grade }
+    : null;
 
   useEffect(() => {
     moveHistoryRef.current = moveHistory;
@@ -1215,7 +1279,16 @@ function App() {
       }
     }
 
-    return list;
+    // lines left over from the previous position can briefly repeat a move; one arrow per move
+    const seen = new Set<string>();
+    return list.filter((arrow) => {
+      const key = `${arrow.startSquare}${arrow.endSquare}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
   }, [bestMoveUCI, multiPvs]);
 
   const memoizedChessboard = useMemo(
@@ -1275,7 +1348,8 @@ function App() {
         eloRange={eloRange}
         aiCoachEnabled={aiCoachEnabled}
         setAiCoachEnabled={setAiCoachEnabled}
-        liveSlot={<LivePanel controller={liveController} live={liveState} verdict={null} />}
+        liveSlot={<LivePanel controller={liveController} live={liveState} verdict={lastVerdict} />}
+        moveReviews={undoStack.map((entry) => entry.review)}
         coachProps={{
           evaluation,
           bestMoveSAN,

@@ -1,5 +1,6 @@
 import { FaChessBoard, FaCog, FaRobot, FaTrash } from 'react-icons/fa';
 import { CoachPanel } from './CoachPanel';
+import { gradeSymbol, type MoveReview } from './live/review';
 
 interface SidebarProps {
   fenInput: string;
@@ -8,6 +9,8 @@ interface SidebarProps {
   onOpenSettings: () => void;
   fenError: string;
   moveHistory: string[];
+  /** Review of each move in `moveHistory` (same order), where known. */
+  moveReviews?: (MoveReview | undefined)[];
   engineDepth: number;
   setEngineDepth: (d: number) => void;
   engineElo: number | null;
@@ -27,6 +30,7 @@ export function Sidebar({
   onOpenSettings,
   fenError,
   moveHistory,
+  moveReviews = [],
   engineDepth,
   setEngineDepth,
   engineElo,
@@ -128,9 +132,15 @@ export function Sidebar({
             {Array.from({ length: Math.ceil(moveHistory.length / 2) }, (_, i) => (
               <div key={i} className="move-pair">
                 <span className="move-number">{i + 1}.</span>
-                <span className="move-san">{moveHistory[i * 2]}</span>
+                <span className={`move-san grade-${moveReviews[i * 2]?.grade ?? 'none'}`}>
+                  {moveHistory[i * 2]}
+                  {moveReviews[i * 2] && gradeSymbol(moveReviews[i * 2]!.grade)}
+                </span>
                 {moveHistory[i * 2 + 1] && (
-                  <span className="move-san">{moveHistory[i * 2 + 1]}</span>
+                  <span className={`move-san grade-${moveReviews[i * 2 + 1]?.grade ?? 'none'}`}>
+                    {moveHistory[i * 2 + 1]}
+                    {moveReviews[i * 2 + 1] && gradeSymbol(moveReviews[i * 2 + 1]!.grade)}
+                  </span>
                 )}
               </div>
             ))}

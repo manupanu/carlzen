@@ -19,6 +19,9 @@ const POSITIONS = {
   e4: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR',
   e5: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR',
   nf3: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R',
+  f3: 'rnbqkbnr/pppppppp/8/8/8/5P2/PPPPP1PP/RNBQKBNR',
+  f3e5: 'rnbqkbnr/pppp1ppp/8/4p3/8/5P2/PPPPP1PP/RNBQKBNR',
+  f3e5g4: 'rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR',
 };
 
 let failures = 0;
@@ -37,6 +40,7 @@ const check = (ok, what, detail = '') => {
 
   await page.addInitScript((positions) => {
     localStorage.setItem('carlzen_welcome_dismissed', 'true');
+    localStorage.setItem('carlzen_engine_depth', '10');
     const SHAPES = {
       p: [[0.35, 0.3, 0.65, 0.8]],
       n: [[0.25, 0.5, 0.75, 0.8], [0.25, 0.2, 0.5, 0.5]],
@@ -120,6 +124,18 @@ const check = (ok, what, detail = '') => {
   await play('e5');
   s = await active();
   check(placementOf(s.fen) === POSITIONS.e5 && s.redoStack.length === 1, 'stepping back is an undo', `redo=${s.redoStack.length}`);
+
+  // a blunder: 1.f3 e5 2.g4?? allows Qh4#
+  await play('start');
+  await play('f3', 6000);
+  await play('f3e5', 6000);
+  await play('f3e5g4', 9000);
+  s = await active();
+  const last = s.undoStack.at(-1);
+  check(s.undoStack.map((e) => e.san).join() === 'f3,e5,g4', 'second game recorded', s.undoStack.map((e) => e.san).join());
+  check(last && last.review && last.review.grade === 'blunder', 'g4 is graded a blunder and the grade is stored', JSON.stringify(last && last.review));
+  check(/Blunder: g4/.test(await page.innerText('.live-verdict').catch(() => '')), 'verdict shown in the Live panel');
+  check(/g4\?\?/.test(await page.innerText('.move-history')), 'history is annotated with ??');
 
   await page.evaluate(() => {
     const slider = document.getElementById('elo-slider');

@@ -1207,3 +1207,16 @@
 .live-verdict.blunder {
   color: #e5534b;
 }
+
+/* Move grades in the history */
+.move-san.grade-inaccuracy {
+  color: #e0b800;
+}
+
+.move-san.grade-mistake {
+  color: #e0742a;
+}
+
+.move-san.grade-blunder {
+  color: #e5534b;
+}

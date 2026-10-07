@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js';
 import { describe, expect, it } from 'vitest';
-import { grade, movePlayed, whiteShare, winShareLost } from './review';
+import { describeReview, grade, gradeSymbol, movePlayed, sanitizeReview, whiteShare, winShareLost } from './review';
 
 describe('movePlayed', () => {
   it('finds the move between two positions', () => {
@@ -76,5 +76,47 @@ describe('grade', () => {
     expect(grade(0.15, false)).toBe('mistake');
     expect(grade(0.4, false)).toBe('blunder');
     expect(grade(0.4, true)).toBe('best');
+  });
+});
+
+describe('sanitizeReview', () => {
+  it('keeps a well-formed review', () => {
+    expect(sanitizeReview({ grade: 'mistake', lostPct: 14.6, bestSan: 'Nc3' })).toEqual({
+      grade: 'mistake',
+      lostPct: 15,
+      bestSan: 'Nc3',
+    });
+  });
+
+  it('drops anything that is not a review', () => {
+    expect(sanitizeReview(null)).toBeUndefined();
+    expect(sanitizeReview('mistake')).toBeUndefined();
+    expect(sanitizeReview({ grade: 'awful', lostPct: 3 })).toBeUndefined();
+  });
+
+  it('clamps numbers and ignores a silly best move', () => {
+    expect(sanitizeReview({ grade: 'blunder', lostPct: 900, bestSan: 'x'.repeat(40) })).toEqual({
+      grade: 'blunder',
+      lostPct: 100,
+    });
+    expect(sanitizeReview({ grade: 'good', lostPct: Number.NaN })).toEqual({ grade: 'good', lostPct: 0 });
+  });
+});
+
+describe('describeReview', () => {
+  it('names the grade, and for bad moves the loss and the better move', () => {
+    expect(describeReview('Nf3', { grade: 'best', lostPct: 0 })).toBe('Best: Nf3');
+    expect(describeReview('h4', { grade: 'blunder', lostPct: 31, bestSan: 'e4' })).toBe(
+      'Blunder: h4 (−31% win chance), best was e4',
+    );
+  });
+});
+
+describe('gradeSymbol', () => {
+  it('uses the usual annotations', () => {
+    expect(gradeSymbol('inaccuracy')).toBe('?!');
+    expect(gradeSymbol('mistake')).toBe('?');
+    expect(gradeSymbol('blunder')).toBe('??');
+    expect(gradeSymbol('best')).toBe('');
   });
 });
