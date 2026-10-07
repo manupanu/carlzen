@@ -29,7 +29,7 @@ export class Engine {
         Uint8Array.of(0x0, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00)
       );
     this.stockfish = new Worker(
-      wasmSupported ? '/stockfish-18-lite-single.js' : '/stockfish-18-asm.js'
+      wasmSupported ? '/stockfish-19-lite-single.js' : '/stockfish-19-asm.js'
     );
 
     this.stockfish.onmessage = (event) => {

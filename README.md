@@ -1,13 +1,13 @@
 # ♟️ CarlZen
 
-**CarlZen** is a premium, AI-powered chess coaching application designed to help players understand the "why" behind every move. It combines the raw power of **Stockfish 18** with the strategic insights of **GPT-4** to provide a unique learning experience.
+**CarlZen** is a premium, AI-powered chess coaching application designed to help players understand the "why" behind every move. It combines the raw power of **Stockfish 19** with the strategic insights of **GPT-4** to provide a unique learning experience.
 
 ![CarlZen Screenshot](https://raw.githubusercontent.com/manuel-developer/CarlZen/main/screenshot.png) *(Note: Add actual screenshot URL here later)*
 
 ## ✨ Features
 
 - **AI Strategic Coaching**: Streaming feedback from an elite AI coach (GPT-4o) explaining the strategic intent of engine moves, proxied through a secure backend.
-- **Deep Analysis**: Powered by Stockfish 18 (WASM) running directly in your browser.
+- **Deep Analysis**: Powered by Stockfish 19 (WASM) running directly in your browser.
 - **Visual Feedback**:
   - **Evaluation Bar**: Real-time visual representation of the position's balance.
   - **Best-Move Arrows**: Intelligent arrows pointing to the top engine recommendations.
@@ -110,7 +110,7 @@ For easy deployment, you can use Docker and Docker Compose. This setup bundles t
 - **Backend Proxy**: Node.js + Express (Handles secure OpenAI API requests)
 - **Chess Logic**: [chess.js](https://github.com/jhlywa/chess.js)
 - **Board UI**: [react-chessboard](https://github.com/Clariity/react-chessboard)
-- **Chess Engine**: [Stockfish 18 (WASM)](https://github.com/official-stockfish/Stockfish)
+- **Chess Engine**: [Stockfish 19 (WASM)](https://github.com/official-stockfish/Stockfish)
 - **AI Feedback**: [OpenAI API (GPT-4o)](https://openai.com/api/)
 - **Styling**: Vanilla CSS (Premium Glassmorphism Design)
 
