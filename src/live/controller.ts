@@ -1,4 +1,3 @@
-import { findBoard } from './boardFinder';
 import { closestCalibration, loadCalibrations, remember } from './calibrations';
 import { Capture, type Region } from './capture';
 import { resolvePosition } from './position';
@@ -11,6 +10,7 @@ import {
   type Reading,
   type ScreenReading,
 } from './recognizer';
+import { findAnyBoard } from './texturedBoardFinder';
 import { Watcher } from './watcher';
 
 /** A position read from the shared screen. */
@@ -349,7 +349,7 @@ export class LiveController {
     this.lastDetect = performance.now();
     const frame = this.capture.grabFrame();
     if (!frame) return false;
-    const found = findBoard(frame);
+    const found = findAnyBoard(frame);
     this.boardFound = found !== null;
     if (!found) return false;
 
@@ -364,7 +364,8 @@ export class LiveController {
     // a board in a style seen before: use the calibration made for it
     const match = closestCalibration(this.calibrations, found.light, found.dark);
     if (match && match !== this.calibration) this.useCalibration(match);
-    else if (!match && this.calibration) {
+    else if (!match && this.calibration && !found.textured) {
+      // (a textured board's colours are only approximate, so a mismatch there proves nothing)
       this.useCalibration(null);
       this.message = 'New board style: it is learned automatically when the starting position is shown';
     }

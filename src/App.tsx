@@ -25,6 +25,8 @@ const ENGINE_DEPTH_KEY = 'carlzen_engine_depth';
 const ENGINE_ELO_KEY = 'carlzen_engine_elo';
 const WELCOME_DISMISSED_KEY = 'carlzen_welcome_dismissed';
 const PREVIEW_ENGINE_DEPTH = 4;
+/** While following a shared screen, the AI coach waits until the position has stayed put this long. */
+const LIVE_COACH_DELAY_MS = 2000;
 const START_FEN = new Chess().fen();
 
 interface BeforeInstallPromptEvent extends Event {
@@ -242,6 +244,13 @@ function App() {
 
   // Grades for played moves: remember how each position was evaluated, and when the position after a move
   // has been analysed, compare the two evaluations.
+  const liveSharingRef = useRef(false);
+  const coachTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    liveSharingRef.current = liveState.sharing;
+  }, [liveState.sharing]);
+  useEffect(() => () => clearTimeout(coachTimerRef.current), []);
+
   const analysedRef = useRef(new Map<string, { score: WhiteScore; bestUci?: string }>());
   const latestTopRef = useRef<{ fen: string; score: WhiteScore; bestUci?: string } | null>(null);
   const recordAnalysis = useCallback(
@@ -571,8 +580,25 @@ function App() {
         return;
       }
 
-      coachPositionKeyRef.current = fen;
-      void fetchCoachingAdvice(fen, move, moveUci);
+      const run = () => {
+        if (!aiCoachEnabledRef.current || coachPositionKeyRef.current === fen) {
+          return;
+        }
+        coachPositionKeyRef.current = fen;
+        void fetchCoachingAdvice(fen, move, moveUci);
+      };
+
+      clearTimeout(coachTimerRef.current);
+      if (liveSharingRef.current) {
+        // following a screen: only explain a position once it has stayed on the board for a moment
+        coachTimerRef.current = setTimeout(() => {
+          if (gameFenRef.current === fen) {
+            run();
+          }
+        }, LIVE_COACH_DELAY_MS);
+      } else {
+        run();
+      }
     },
     [fetchCoachingAdvice]
   );

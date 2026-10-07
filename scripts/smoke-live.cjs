@@ -3,6 +3,7 @@
  *
  *   npm run dev                      # in one terminal
  *   NODE_PATH="$(npm root -g)" node scripts/smoke-live.cjs [url] [screenshot.png]
+ *   TEXTURED=1 ...                   # the same with a grainy wood board instead of flat colours
  *
  * Needs Playwright with Chromium installed globally. Chromium's headless screen sharing delivers no frames,
  * so `getDisplayMedia` is replaced by a canvas stream that draws a fake page with a synthetic board (simple
@@ -13,6 +14,7 @@ const { chromium } = require('playwright');
 
 const URL = process.argv[2] || 'http://localhost:5173/';
 const SHOT = process.argv[3] || 'smoke-live.png';
+const TEXTURED = process.env.TEXTURED === '1';
 
 const POSITIONS = {
   start: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR',
@@ -38,7 +40,7 @@ const check = (ok, what, detail = '') => {
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 
-  await page.addInitScript((positions) => {
+  await page.addInitScript(({ positions, textured }) => {
     localStorage.setItem('carlzen_welcome_dismissed', 'true');
     localStorage.setItem('carlzen_engine_depth', '10');
     const SHAPES = {
@@ -89,9 +91,46 @@ const check = (ok, what, detail = '') => {
         g.fillRect(x + x0 * S, y + y0 * S, (x1 - x0) * S, (y1 - y0) * S);
       }
     };
-    setInterval(draw, 100);
+    // wood: the squares get grain (streaks along the rows plus per-pixel noise) instead of flat colours
+    const wood = g.createImageData(8 * S, 8 * S);
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32) * 2 - 1;
+    const streak = Array.from({ length: 8 * S }, () => rnd() * 14);
+    for (let y = 0; y < 8 * S; y++) {
+      for (let x = 0; x < 8 * S; x++) {
+        const light = (Math.floor(y / S) + Math.floor(x / S)) % 2 === 0;
+        const n = streak[y] + rnd() * 7;
+        const base = light ? [222, 184, 135] : [140, 98, 60];
+        const i = (y * 8 * S + x) * 4;
+        wood.data[i] = base[0] + n;
+        wood.data[i + 1] = base[1] + n * 0.8;
+        wood.data[i + 2] = base[2] + n * 0.6;
+        wood.data[i + 3] = 255;
+      }
+    }
+    const baseDraw = draw;
+    const drawWood = () => {
+      baseDraw();
+      g.putImageData(wood, 90, 40);
+      placement.split('/').forEach((row, r) => {
+        let c = 0;
+        for (const ch of row) {
+          if (/\d/.test(ch)) c += Number(ch);
+          else pieceOnly(r, c++, ch);
+        }
+      });
+    };
+    const pieceOnly = (r, c, piece) => {
+      const x = 90 + c * S;
+      const y = 40 + r * S;
+      g.fillStyle = piece === piece.toUpperCase() ? '#fafafa' : '#1e1e1e';
+      for (const [x0, y0, x1, y1] of SHAPES[piece.toLowerCase()]) {
+        g.fillRect(x + x0 * S, y + y0 * S, (x1 - x0) * S, (y1 - y0) * S);
+      }
+    };
+    setInterval(textured ? drawWood : draw, 100);
     navigator.mediaDevices.getDisplayMedia = async () => canvas.captureStream(15);
-  }, POSITIONS);
+  }, { positions: POSITIONS, textured: TEXTURED });
 
   await page.goto(URL);
   await page.waitForSelector('text=Watch Screen');

@@ -9,6 +9,8 @@ export interface BoardFound {
   dark: RGB;
   /** Share of the 64 squares that showed the expected alternating colour (0..1). */
   score: number;
+  /** Found by brightness only, because the squares are not flat colours (wood, marble). */
+  textured?: boolean;
 }
 
 const MAX_CLUSTERS = 6;
@@ -133,13 +135,13 @@ function edgeVotes(labels: Int8Array, w: number, h: number, a: number, b: number
   return votes;
 }
 
-interface Lattice {
+export interface Lattice {
   start: number; // position of the first interior line
   score: number;
 }
 
 /** Best 7 equally spaced interior lines (spacing `s`) in a vote histogram. */
-function bestLattice(votes: Float32Array, s: number, minVotes: number): Lattice | null {
+export function bestLattice(votes: Float32Array, s: number, minVotes: number): Lattice | null {
   const len = votes.length;
   // an edge votes on three neighbouring positions; weighting the centre picks its middle
   const line = (p: number) => {

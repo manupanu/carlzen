@@ -1,62 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { findBoard } from './boardFinder';
-import type { Img, RGB } from './recognizer';
-import { START, render, rows, type RenderOptions } from './testHelpers';
-
-let seed = 99;
-const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
-
-/** A fake screenshot: busy page background, a sidebar, text-like stripes and a board of `size` px at (x, y). */
-function page(
-  w: number,
-  h: number,
-  board: Img,
-  x: number,
-  y: number,
-  size: number,
-  bg: RGB = [38, 36, 33],
-): Img {
-  const data = new Uint8ClampedArray(w * h * 4);
-  for (let i = 0; i < w * h; i++) {
-    data[i * 4] = bg[0];
-    data[i * 4 + 1] = bg[1];
-    data[i * 4 + 2] = bg[2];
-    data[i * 4 + 3] = 255;
-  }
-  const fill = (x0: number, y0: number, x1: number, y1: number, c: RGB) => {
-    for (let yy = y0; yy < y1; yy++)
-      for (let xx = x0; xx < x1; xx++) {
-        const i = (yy * w + xx) * 4;
-        data[i] = c[0];
-        data[i + 1] = c[1];
-        data[i + 2] = c[2];
-      }
-  };
-  // sidebar, buttons and text lines
-  fill(Math.floor(w * 0.72), 0, w, h, [49, 46, 43]);
-  for (let k = 0; k < 14; k++)
-    fill(
-      Math.floor(w * 0.74),
-      20 + k * 22,
-      Math.floor(w * (0.8 + rnd() * 0.15)),
-      28 + k * 22,
-      [120, 118, 114],
-    );
-  fill(Math.floor(w * 0.74), h - 60, Math.floor(w * 0.9), h - 30, [129, 182, 76]); // a green button
-  // the board, scaled with nearest neighbour
-  for (let yy = 0; yy < size; yy++) {
-    for (let xx = 0; xx < size; xx++) {
-      const sx = Math.floor((xx / size) * board.width);
-      const sy = Math.floor((yy / size) * board.height);
-      const si = (sy * board.width + sx) * 4;
-      const di = ((y + yy) * w + x + xx) * 4;
-      data[di] = board.data[si];
-      data[di + 1] = board.data[si + 1];
-      data[di + 2] = board.data[si + 2];
-    }
-  }
-  return { data, width: w, height: h };
-}
+import type { RGB } from './recognizer';
+import { START, page, render, rows, type RenderOptions } from './testHelpers';
 
 const mid = rows('r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R');
 

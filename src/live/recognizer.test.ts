@@ -53,6 +53,26 @@ describe('calibrate + recognizeBoard', () => {
   });
 });
 
+describe('textured boards (wood, marble)', () => {
+  const wood = { light: [222, 184, 135] as [number, number, number], dark: [140, 98, 60] as [number, number, number] };
+  const mid = rows('r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R');
+
+  it.each([6, 14, 24])('reads a board with texture amplitude %i', (texture) => {
+    const cal = calibrate(render(START, { ...wood, texture }));
+    const got = recognizeBoard(render(mid, { ...wood, texture, noise: 4 }), cal);
+    expect(got.grid).toEqual(mid);
+    expect(got.hasUnknown).toBe(false);
+  });
+
+  it('is not confused by a cursor or highlights on a textured board', () => {
+    const cal = calibrate(render(START, { ...wood, texture: 14 }));
+    const img = render(mid, { ...wood, texture: 14, highlight: [[6, 4], [4, 4]], cursor: squareSpot(3, 3) });
+    const got = recognizeBoard(img, cal);
+    expect(got.grid.flat().filter((p, i) => p !== mid.flat()[i]).length).toBe(0);
+    expect(got.highlighted).toHaveLength(2);
+  });
+});
+
 describe('robustness', () => {
   it('still reads white pieces with little contrast against light squares', () => {
     const faint = 248; // light squares are ~238, so the fill is only slightly brighter

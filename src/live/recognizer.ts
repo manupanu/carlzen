@@ -63,6 +63,11 @@ const HIGHLIGHT_DIST = 45;
 // colour distance from the background where a pixel starts / fully counts as "piece"
 const MASK_LO = 25;
 const MASK_HI = 70;
+// texture: spread (median distance of background pixels from the background colour) up to FLAT_SPREAD is
+// treated as flat; beyond it the piece threshold rises by TEXTURE_FACTOR per unit, up to MAX_TEXTURE_EXTRA
+const FLAT_SPREAD = 8;
+const TEXTURE_FACTOR = 1.5;
+const MAX_TEXTURE_EXTRA = 45;
 // a piece cell counts as "dark" below this luminance (0..1)
 const DARK_MAX = 0.42;
 // share of dark piece cells that separates black from white pieces, on a light and on a dark square
@@ -87,6 +92,12 @@ const ignored = (cx: number, cy: number) => {
   const edge = cx === 0 || cy === 0 || cx === CELLS - 1 || cy === CELLS - 1;
   return corner || rankLabel || fileLabel || edge;
 };
+/** Cells in the side strips of a square, used to measure texture (pieces and the rim blur rarely reach them). */
+const TEXTURE_CELLS: number[] = [];
+for (const cx of [2, CELLS - 3]) {
+  for (let cy = 5; cy <= 12; cy++) TEXTURE_CELLS.push(cy * CELLS + cx);
+}
+
 const IGNORED_CELLS = (() => {
   let n = 0;
   for (let cy = 0; cy < CELLS; cy++) for (let cx = 0; cx < CELLS; cx++) if (ignored(cx, cy)) n++;
@@ -225,11 +236,10 @@ export function squareFeatures(img: Img, row: number, col: number): SquareFeatur
   const s = img.width / 8;
   const bg = squareBackground(img, row, col);
   const bgLuma = luma(bg[0], bg[1], bg[2]);
-  const vec = new Float32Array(CELLS * CELLS);
   const cell = s / CELLS;
-  let present = 0;
-  let pieceCells = 0;
-  let darkCells = 0;
+
+  // average colour of every cell
+  const cells = new Float32Array(CELLS * CELLS * 3);
   for (let cy = 0; cy < CELLS; cy++) {
     for (let cx = 0; cx < CELLS; cx++) {
       if (ignored(cx, cy)) continue;
@@ -244,21 +254,57 @@ export function squareFeatures(img: Img, row: number, col: number): SquareFeatur
       for (let y = ya; y < yb; y++) {
         for (let x = xa; x < xb; x++) {
           const i = (y * img.width + x) * 4;
-          const pr = img.data[i];
-          const pg = img.data[i + 1];
-          const pb = img.data[i + 2];
-          r += pr;
-          g += pg;
-          b += pb;
+          r += img.data[i];
+          g += img.data[i + 1];
+          b += img.data[i + 2];
           k++;
         }
       }
-      const w = smoothstep(MASK_LO, MASK_HI, distTo(r / k, g / k, b / k, bg));
+      const o = (cy * CELLS + cx) * 3;
+      cells[o] = r / k;
+      cells[o + 1] = g / k;
+      cells[o + 2] = b / k;
+    }
+  }
+
+  // Texture (wood grain, marble veins): how far the cells at the sides of the square scatter around the
+  // background colour. Pieces rarely reach those strips, and averaging pixels into cells removes random
+  // compression noise but not grain, so the two are told apart. A textured square needs a higher bar before a
+  // cell counts as piece.
+  const deviations = new Uint16Array(73);
+  let near = 0;
+  for (const cellIndex of TEXTURE_CELLS) {
+    const o = cellIndex * 3;
+    const d = distTo(cells[o], cells[o + 1], cells[o + 2], bg);
+    if (d <= 72) {
+      deviations[Math.round(d)]++;
+      near++;
+    }
+  }
+  let spread = 0;
+  for (let d = 0, seen = 0; d <= 72; d++) {
+    seen += deviations[d];
+    if (seen > near >> 1) {
+      spread = d;
+      break;
+    }
+  }
+  const extra = Math.min(MAX_TEXTURE_EXTRA, TEXTURE_FACTOR * Math.max(0, spread - FLAT_SPREAD));
+
+  const vec = new Float32Array(CELLS * CELLS);
+  let present = 0;
+  let pieceCells = 0;
+  let darkCells = 0;
+  for (let cy = 0; cy < CELLS; cy++) {
+    for (let cx = 0; cx < CELLS; cx++) {
+      if (ignored(cx, cy)) continue;
+      const o = (cy * CELLS + cx) * 3;
+      const w = smoothstep(MASK_LO + extra, MASK_HI + extra, distTo(cells[o], cells[o + 1], cells[o + 2], bg));
       vec[cy * CELLS + cx] = w;
       present += w;
       if (w > 0.5) {
         pieceCells++;
-        if (luma(r / k, g / k, b / k) < DARK_MAX) darkCells++;
+        if (luma(cells[o], cells[o + 1], cells[o + 2]) < DARK_MAX) darkCells++;
       }
     }
   }
