@@ -94,6 +94,10 @@ function sanitizeToken(token: unknown): string {
     throw new Error('Sync token is required.');
   }
 
+  if (trimmed.length < 16) {
+    throw new Error('Sync token must be at least 16 characters.');
+  }
+
   if (trimmed.length > 128) {
     throw new Error('Sync token must be 128 characters or fewer.');
   }

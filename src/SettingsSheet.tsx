@@ -70,7 +70,7 @@ export function SettingsSheet({
             </div>
             <input
               type="text"
-              placeholder="Enter your sync token..."
+              placeholder="Sync token (min. 16 characters)..."
               value={syncToken}
               onChange={(event) => setSyncToken(event.target.value)}
               className="premium-input"

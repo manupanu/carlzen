@@ -45,7 +45,7 @@ describe('Tracker', () => {
       t.commit(fen);
     }
     expect(bad).toEqual([]);
-  });
+  }, 30_000); // renders 384 boards; the default 5s is too tight on CI
 
   it('finds the side to move after a move without any highlight', () => {
     const [e4] = game('e4');

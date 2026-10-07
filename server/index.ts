@@ -4,6 +4,8 @@ import { OpenAI } from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import rateLimit from 'express-rate-limit';
+import { ThinkFilter } from './thinkFilter.js';
 import { readSyncState, writeSyncState } from './syncStore.js';
 
 dotenv.config();
@@ -14,7 +16,10 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.use(cors());
+// In production the frontend is served from this server, so CORS is only needed for the Vite dev server.
+if (process.env.NODE_ENV !== 'production') {
+  app.use(cors());
+}
 app.use(express.json({ limit: '1mb' }));
 
 const openai = new OpenAI({
@@ -73,6 +78,12 @@ function formatCoachRequest(body: Record<string, unknown>) {
     .join('\n');
 }
 
+const limit = (perMinute: number) =>
+  rateLimit({ windowMs: 60_000, limit: perMinute, standardHeaders: 'draft-7', legacyHeaders: false });
+
+app.use('/api/coach', limit(Number(process.env.COACH_RATE_LIMIT) || 20));
+app.use('/api/sync', limit(Number(process.env.SYNC_RATE_LIMIT) || 60));
+
 app.post('/api/sync/pull', (req, res) => {
   try {
     const state = readSyncState(req.body?.token);
@@ -129,62 +140,25 @@ app.post('/api/coach', async (req, res) => {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Transfer-Encoding', 'chunked');
 
-    let isThinking = false;
-    let buffer = '';
+    const filter = new ThinkFilter();
 
     for await (const chunk of stream) {
       const content = chunk.choices[0]?.delta?.content || '';
       if (!content) continue;
-
-      buffer += content;
-
-      while (buffer.length > 0) {
-        if (!isThinking) {
-          const thinkStart = buffer.indexOf('<think>');
-          if (thinkStart !== -1) {
-            // Write everything before <think>
-            if (thinkStart > 0) {
-              res.write(buffer.substring(0, thinkStart));
-            }
-            buffer = buffer.substring(thinkStart + 7);
-            isThinking = true;
-          } else {
-            // Check if buffer ends with a partial '<think>'
-            const lastOpenBracket = buffer.lastIndexOf('<');
-            if (lastOpenBracket !== -1 && '<think>'.startsWith(buffer.substring(lastOpenBracket))) {
-              if (lastOpenBracket > 0) {
-                res.write(buffer.substring(0, lastOpenBracket));
-                buffer = buffer.substring(lastOpenBracket);
-              }
-              break; // Wait for more data to complete the tag
-            } else {
-              res.write(buffer);
-              buffer = '';
-            }
-          }
-        } else {
-          const thinkEnd = buffer.indexOf('</think>');
-          if (thinkEnd !== -1) {
-            buffer = buffer.substring(thinkEnd + 8);
-            isThinking = false;
-          } else {
-            // Check if buffer ends with a partial '</think>'
-            const lastOpenBracket = buffer.lastIndexOf('<');
-            if (lastOpenBracket !== -1 && '</think>'.startsWith(buffer.substring(lastOpenBracket))) {
-              buffer = buffer.substring(lastOpenBracket);
-              break; // Wait for more data
-            } else {
-              buffer = ''; // Discard everything while thinking
-              break;
-            }
-          }
-        }
-      }
+      const text = filter.push(content);
+      if (text) res.write(text);
     }
+
+    const rest = filter.flush();
+    if (rest) res.write(rest);
     res.end();
   } catch (error: unknown) {
     console.error('OpenAI API Error:', error);
-    res.status(500).json({ error: 'Failed to fetch AI feedback' });
+    if (res.headersSent) {
+      res.end();
+    } else {
+      res.status(500).json({ error: 'Failed to fetch AI feedback' });
+    }
   }
 });
 
