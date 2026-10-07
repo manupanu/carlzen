@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- The Docker image workflow now only runs for tagged commits (`v*`); it no longer builds on pushes to `main`
+  or on pull requests (lint, tests and the build still run for those in the CI workflow). `latest` is set by
+  stable tags, not by `main`.
+
 ## 0.1.0
 
 ### Added

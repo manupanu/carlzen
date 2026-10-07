@@ -14,7 +14,7 @@ Use `npm install` to install dependencies.
 - `npm test`: runs the Vitest unit tests (`src/**/*.test.ts` and `server/**/*.test.ts`).
 - `npm run preview`: serves the production build locally.
 
-For Docker-based validation, use `docker-compose up --build`.
+For Docker-based validation, use `docker-compose up --build`. The Docker image is only built and published for tagged commits (`git tag v0.2.0 && git push origin v0.2.0`); lint, tests and the build of every pull request run in `.github/workflows/ci.yml`.
 
 ## Coding Style & Naming Conventions
 This repo uses TypeScript, React function components, and ES modules. Follow the existing code style: semicolons, single quotes, and 2-space indentation in new code. Use `PascalCase` for React components (`CoachPanel.tsx`), `camelCase` for functions and variables, and concise file names that match exported components. Keep shared logic out of JSX-heavy components when it improves readability. Run `npm run lint` before opening a PR.
