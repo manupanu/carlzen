@@ -1,6 +1,8 @@
 import { FaPlus, FaTimes } from 'react-icons/fa';
 
-export interface HistEntry { fen: string; san: string; }
+import type { MoveReview } from './live/review';
+
+export interface HistEntry { fen: string; san: string; review?: MoveReview; }
 
 export interface Session {
   id: string;

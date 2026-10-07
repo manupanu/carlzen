@@ -5,9 +5,37 @@ import { DatabaseSync } from 'node:sqlite';
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
+type Grade = 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder';
+
+/** How good a played move was; mirrors `MoveReview` in src/live/review.ts. */
+interface MoveReview {
+  grade: Grade;
+  lostPct: number;
+  bestSan?: string;
+}
+
 interface HistEntry {
   fen: string;
   san: string;
+  review?: MoveReview;
+}
+
+const GRADES: Grade[] = ['best', 'good', 'inaccuracy', 'mistake', 'blunder'];
+
+export function sanitizeReview(value: unknown): MoveReview | undefined {
+  if (!isObject(value) || typeof value.grade !== 'string' || !GRADES.includes(value.grade as Grade)) {
+    return undefined;
+  }
+
+  const lostPct =
+    typeof value.lostPct === 'number' && Number.isFinite(value.lostPct)
+      ? Math.min(100, Math.max(0, Math.round(value.lostPct)))
+      : 0;
+  const review: MoveReview = { grade: value.grade as Grade, lostPct };
+  if (typeof value.bestSan === 'string' && value.bestSan.length > 0 && value.bestSan.length <= 12) {
+    review.bestSan = value.bestSan;
+  }
+  return review;
 }
 
 interface SessionRecord {
@@ -84,10 +112,8 @@ function sanitizeHistoryEntry(value: unknown): HistEntry | null {
     return null;
   }
 
-  return {
-    fen: value.fen,
-    san: value.san,
-  };
+  const review = sanitizeReview(value.review);
+  return review ? { fen: value.fen, san: value.san, review } : { fen: value.fen, san: value.san };
 }
 
 function sanitizeMove(value: unknown): { from: string; to: string } | null {

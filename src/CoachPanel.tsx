@@ -50,7 +50,7 @@ export function CoachPanel({
       {!isEngineReady ? (
         <div className="engine-loading">
           <div className="loading-spinner" />
-          <p>Loading Stockfish 18…</p>
+          <p>Loading Stockfish 19…</p>
         </div>
       ) : gameStatus === 'checkmate' || gameStatus === 'stalemate' || gameStatus === 'draw' ? (
         <p className="pulse-text" style={{ marginTop: '12px' }}>Game over — reset or load a new position.</p>

@@ -1,5 +1,6 @@
 import { FaChessBoard, FaCog, FaRobot, FaTrash } from 'react-icons/fa';
 import { CoachPanel } from './CoachPanel';
+import { gradeSymbol, type MoveReview } from './live/review';
 
 interface SidebarProps {
   fenInput: string;
@@ -8,11 +9,18 @@ interface SidebarProps {
   onOpenSettings: () => void;
   fenError: string;
   moveHistory: string[];
+  /** Review of each move in `moveHistory` (same order), where known. */
+  moveReviews?: (MoveReview | undefined)[];
   engineDepth: number;
   setEngineDepth: (d: number) => void;
+  engineElo: number | null;
+  setEngineElo: (elo: number | null) => void;
+  eloRange: { min: number; max: number };
   aiCoachEnabled: boolean;
   setAiCoachEnabled: (v: boolean) => void;
   coachProps: React.ComponentProps<typeof CoachPanel>;
+  /** The Live mode panel, rendered below the board setup. */
+  liveSlot?: React.ReactNode;
 }
 
 export function Sidebar({
@@ -22,11 +30,16 @@ export function Sidebar({
   onOpenSettings,
   fenError,
   moveHistory,
+  moveReviews = [],
   engineDepth,
   setEngineDepth,
+  engineElo,
+  setEngineElo,
+  eloRange,
   aiCoachEnabled,
   setAiCoachEnabled,
   coachProps,
+  liveSlot,
 }: SidebarProps) {
   return (
     <div className="sidebar glass-panel">
@@ -82,8 +95,34 @@ export function Sidebar({
               <span>Fast</span><span>Strong</span>
             </div>
           </div>
+
+          {/* Playing strength of the suggested move */}
+          <div className="depth-control">
+            <label className="depth-label" htmlFor="elo-slider">
+              Strength (Elo)
+              <span className="depth-value">{engineElo ?? 'Max'}</span>
+            </label>
+            <input
+              id="elo-slider"
+              type="range"
+              min={eloRange.min}
+              max={eloRange.max + 10}
+              step={10}
+              value={engineElo ?? eloRange.max + 10}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                setEngineElo(value > eloRange.max ? null : value);
+              }}
+              className="depth-slider"
+            />
+            <div className="depth-hints">
+              <span>Casual</span><span>Full strength</span>
+            </div>
+          </div>
         </div>
       </div>
+
+      {liveSlot}
 
       {/* Move History */}
       {moveHistory.length > 0 && (
@@ -93,9 +132,15 @@ export function Sidebar({
             {Array.from({ length: Math.ceil(moveHistory.length / 2) }, (_, i) => (
               <div key={i} className="move-pair">
                 <span className="move-number">{i + 1}.</span>
-                <span className="move-san">{moveHistory[i * 2]}</span>
+                <span className={`move-san grade-${moveReviews[i * 2]?.grade ?? 'none'}`}>
+                  {moveHistory[i * 2]}
+                  {moveReviews[i * 2] && gradeSymbol(moveReviews[i * 2]!.grade)}
+                </span>
                 {moveHistory[i * 2 + 1] && (
-                  <span className="move-san">{moveHistory[i * 2 + 1]}</span>
+                  <span className={`move-san grade-${moveReviews[i * 2 + 1]?.grade ?? 'none'}`}>
+                    {moveHistory[i * 2 + 1]}
+                    {moveReviews[i * 2 + 1] && gradeSymbol(moveReviews[i * 2 + 1]!.grade)}
+                  </span>
                 )}
               </div>
             ))}

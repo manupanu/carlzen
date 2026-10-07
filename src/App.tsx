@@ -9,6 +9,11 @@ import { Sidebar } from './Sidebar';
 import { BoardControls } from './BoardControls';
 import { SettingsSheet } from './SettingsSheet';
 import { SessionTabs, type HistEntry, type Session } from './SessionTabs';
+import { applyLivePosition } from './live/applyPosition';
+import { describeReview, grade, movePlayed, sanitizeReview, winShareLost, type WhiteScore } from './live/review';
+import type { LivePosition } from './live/controller';
+import { LivePanel } from './live/LivePanel';
+import { useLiveController } from './live/useLiveController';
 import './App.css';
 
 const AI_COACH_KEY = 'carlzen_ai_coach';
@@ -17,8 +22,11 @@ const ACTIVE_SESSION_KEY = 'carlzen_active_session';
 const SYNC_TOKEN_KEY = 'carlzen_sync_token';
 const SYNC_UPDATED_AT_KEY = 'carlzen_sync_updated_at';
 const ENGINE_DEPTH_KEY = 'carlzen_engine_depth';
+const ENGINE_ELO_KEY = 'carlzen_engine_elo';
 const WELCOME_DISMISSED_KEY = 'carlzen_welcome_dismissed';
 const PREVIEW_ENGINE_DEPTH = 4;
+/** While following a shared screen, the AI coach waits until the position has stayed put this long. */
+const LIVE_COACH_DELAY_MS = 2000;
 const START_FEN = new Chess().fen();
 
 interface BeforeInstallPromptEvent extends Event {
@@ -56,10 +64,8 @@ function normalizeHistoryEntry(value: unknown): HistEntry | null {
     return null;
   }
 
-  return {
-    fen: value.fen,
-    san: value.san,
-  };
+  const review = sanitizeReview(value.review);
+  return review ? { fen: value.fen, san: value.san, review } : { fen: value.fen, san: value.san };
 }
 
 function createSession(
@@ -205,19 +211,85 @@ function App() {
 
   const updateActiveSession = useCallback(
     (updater: (session: Session) => Session) => {
-      setSessions((prev) =>
-        prev.map((session) => {
+      setSessions((prev) => {
+        let changed = false;
+        const next = prev.map((session) => {
           if (session.id !== activeSessionId) {
             return session;
           }
 
           const nextSession = updater(session);
+          if (nextSession === session) {
+            return session;
+          }
+
+          changed = true;
           return { ...nextSession, updatedAt: Date.now() };
-        })
-      );
+        });
+        return changed ? next : prev;
+      });
     },
     [activeSessionId]
   );
+
+  const handleLivePosition = useCallback(
+    (position: LivePosition) => {
+      updateActiveSession((session) =>
+        applyLivePosition(session, position.fen, position.flipped ? 'black' : 'white')
+      );
+    },
+    [updateActiveSession]
+  );
+  const { controller: liveController, state: liveState } = useLiveController(handleLivePosition);
+
+  // Grades for played moves: remember how each position was evaluated, and when the position after a move
+  // has been analysed, compare the two evaluations.
+  const liveSharingRef = useRef(false);
+  const coachTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    liveSharingRef.current = liveState.sharing;
+  }, [liveState.sharing]);
+  useEffect(() => () => clearTimeout(coachTimerRef.current), []);
+
+  const analysedRef = useRef(new Map<string, { score: WhiteScore; bestUci?: string }>());
+  const latestTopRef = useRef<{ fen: string; score: WhiteScore; bestUci?: string } | null>(null);
+  const recordAnalysis = useCallback(
+    (fen: string, score: WhiteScore, bestUci?: string) => {
+      const key = (f: string) => f.split(' ').slice(0, 2).join(' ');
+      const analysed = analysedRef.current;
+      analysed.set(key(fen), { score, bestUci });
+      if (analysed.size > 80) {
+        analysed.delete(analysed.keys().next().value as string);
+      }
+
+      updateActiveSession((session) => {
+        const last = session.undoStack.at(-1);
+        if (!last || last.review || key(session.fen) !== key(fen)) {
+          return session;
+        }
+        const before = analysed.get(key(last.fen));
+        const played = before ? movePlayed(last.fen, fen) : null;
+        if (!before || !played) {
+          return session;
+        }
+
+        const lost = winShareLost(last.fen, before.score, score);
+        const bestSan =
+          before.bestUci && before.bestUci !== played.uci ? uciToSan(last.fen, before.bestUci) : undefined;
+        const review = {
+          grade: grade(lost, played.uci === before.bestUci),
+          lostPct: Math.round(lost * 100),
+          ...(bestSan ? { bestSan } : {}),
+        };
+        return { ...session, undoStack: [...session.undoStack.slice(0, -1), { ...last, review }] };
+      });
+    },
+    [updateActiveSession]
+  );
+  const recordAnalysisRef = useRef(recordAnalysis);
+  useEffect(() => {
+    recordAnalysisRef.current = recordAnalysis;
+  });
 
   const [fenInput, setFenInput] = useState('');
   const [fenError, setFenError] = useState('');
@@ -231,6 +303,12 @@ function App() {
     const saved = Number(localStorage.getItem(ENGINE_DEPTH_KEY));
     return Number.isFinite(saved) && saved >= 1 && saved <= 25 ? saved : 18;
   });
+  // null = full strength; otherwise the playing strength the suggested move is limited to
+  const [engineElo, setEngineElo] = useState<number | null>(() => {
+    const saved = Number(localStorage.getItem(ENGINE_ELO_KEY));
+    return Number.isFinite(saved) && saved > 0 ? saved : null;
+  });
+  const [eloRange, setEloRange] = useState({ min: 1320, max: 3190 });
   const [multiPvs, setMultiPvs] = useState<MultiPvLine[]>([]);
   const [coachAdvice, setCoachAdvice] = useState('');
   const [isCoaching, setIsCoaching] = useState(false);
@@ -380,6 +458,11 @@ function App() {
   }, [engineDepth]);
 
   useEffect(() => {
+    localStorage.setItem(ENGINE_ELO_KEY, engineElo === null ? '' : String(engineElo));
+    engineRef.current?.setStrength(engineElo);
+  }, [engineElo, isEngineReady]);
+
+  useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
 
@@ -497,8 +580,25 @@ function App() {
         return;
       }
 
-      coachPositionKeyRef.current = fen;
-      void fetchCoachingAdvice(fen, move, moveUci);
+      const run = () => {
+        if (!aiCoachEnabledRef.current || coachPositionKeyRef.current === fen) {
+          return;
+        }
+        coachPositionKeyRef.current = fen;
+        void fetchCoachingAdvice(fen, move, moveUci);
+      };
+
+      clearTimeout(coachTimerRef.current);
+      if (liveSharingRef.current) {
+        // following a screen: only explain a position once it has stayed on the board for a moment
+        coachTimerRef.current = setTimeout(() => {
+          if (gameFenRef.current === fen) {
+            run();
+          }
+        }, LIVE_COACH_DELAY_MS);
+      } else {
+        run();
+      }
     },
     [fetchCoachingAdvice]
   );
@@ -597,6 +697,9 @@ function App() {
     engineRef.current = new Engine((msg) => {
       if (msg.type === 'ready') {
         setIsEngineReady(true);
+        if (engineRef.current) {
+          setEloRange({ ...engineRef.current.eloRange });
+        }
       } else if (msg.type === 'bestmove') {
         if (msg.searchId !== activeSearchIdRef.current) {
           return;
@@ -630,6 +733,10 @@ function App() {
           );
         } else {
           requestCoachingAdvice(gameFenRef.current, resolvedMoveText, uciMove);
+          const top = latestTopRef.current;
+          if (top) {
+            recordAnalysisRef.current(top.fen, top.score, top.bestUci);
+          }
           setIsAnalyzing(false);
           setAnalysisStatus('');
           setAnalysisStage('idle');
@@ -685,6 +792,14 @@ function App() {
             setEvaluation(cp > 0 ? `+${evalStr}` : evalStr);
             setEvalPercent(cpToPercent(cp));
             setEngineScore({ cp });
+          }
+
+          if (mate !== undefined || cp !== undefined) {
+            latestTopRef.current = {
+              fen: analysisFenRef.current,
+              score: mate !== undefined ? { mate } : { cp },
+              bestUci: firstMove && firstMove.length >= 4 ? firstMove : undefined,
+            };
           }
         }
       }
@@ -1061,6 +1176,10 @@ function App() {
   );
 
   const moveHistory = useMemo(() => undoStack.map((entry) => entry.san), [undoStack]);
+  const lastEntry = undoStack.at(-1);
+  const lastVerdict = lastEntry?.review
+    ? { text: describeReview(lastEntry.san, lastEntry.review), grade: lastEntry.review.grade }
+    : null;
 
   useEffect(() => {
     moveHistoryRef.current = moveHistory;
@@ -1186,7 +1305,16 @@ function App() {
       }
     }
 
-    return list;
+    // lines left over from the previous position can briefly repeat a move; one arrow per move
+    const seen = new Set<string>();
+    return list.filter((arrow) => {
+      const key = `${arrow.startSquare}${arrow.endSquare}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
   }, [bestMoveUCI, multiPvs]);
 
   const memoizedChessboard = useMemo(
@@ -1241,8 +1369,13 @@ function App() {
         moveHistory={moveHistory}
         engineDepth={engineDepth}
         setEngineDepth={setEngineDepth}
+        engineElo={engineElo}
+        setEngineElo={setEngineElo}
+        eloRange={eloRange}
         aiCoachEnabled={aiCoachEnabled}
         setAiCoachEnabled={setAiCoachEnabled}
+        liveSlot={<LivePanel controller={liveController} live={liveState} verdict={lastVerdict} />}
+        moveReviews={undoStack.map((entry) => entry.review)}
         coachProps={{
           evaluation,
           bestMoveSAN,
