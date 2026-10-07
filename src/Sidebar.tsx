@@ -10,6 +10,9 @@ interface SidebarProps {
   moveHistory: string[];
   engineDepth: number;
   setEngineDepth: (d: number) => void;
+  engineElo: number | null;
+  setEngineElo: (elo: number | null) => void;
+  eloRange: { min: number; max: number };
   aiCoachEnabled: boolean;
   setAiCoachEnabled: (v: boolean) => void;
   coachProps: React.ComponentProps<typeof CoachPanel>;
@@ -24,6 +27,9 @@ export function Sidebar({
   moveHistory,
   engineDepth,
   setEngineDepth,
+  engineElo,
+  setEngineElo,
+  eloRange,
   aiCoachEnabled,
   setAiCoachEnabled,
   coachProps,
@@ -80,6 +86,30 @@ export function Sidebar({
             />
             <div className="depth-hints">
               <span>Fast</span><span>Strong</span>
+            </div>
+          </div>
+
+          {/* Playing strength of the suggested move */}
+          <div className="depth-control">
+            <label className="depth-label" htmlFor="elo-slider">
+              Strength (Elo)
+              <span className="depth-value">{engineElo ?? 'Max'}</span>
+            </label>
+            <input
+              id="elo-slider"
+              type="range"
+              min={eloRange.min}
+              max={eloRange.max + 10}
+              step={10}
+              value={engineElo ?? eloRange.max + 10}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                setEngineElo(value > eloRange.max ? null : value);
+              }}
+              className="depth-slider"
+            />
+            <div className="depth-hints">
+              <span>Casual</span><span>Full strength</span>
             </div>
           </div>
         </div>

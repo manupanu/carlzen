@@ -17,6 +17,7 @@ const ACTIVE_SESSION_KEY = 'carlzen_active_session';
 const SYNC_TOKEN_KEY = 'carlzen_sync_token';
 const SYNC_UPDATED_AT_KEY = 'carlzen_sync_updated_at';
 const ENGINE_DEPTH_KEY = 'carlzen_engine_depth';
+const ENGINE_ELO_KEY = 'carlzen_engine_elo';
 const WELCOME_DISMISSED_KEY = 'carlzen_welcome_dismissed';
 const PREVIEW_ENGINE_DEPTH = 4;
 const START_FEN = new Chess().fen();
@@ -231,6 +232,12 @@ function App() {
     const saved = Number(localStorage.getItem(ENGINE_DEPTH_KEY));
     return Number.isFinite(saved) && saved >= 1 && saved <= 25 ? saved : 18;
   });
+  // null = full strength; otherwise the playing strength the suggested move is limited to
+  const [engineElo, setEngineElo] = useState<number | null>(() => {
+    const saved = Number(localStorage.getItem(ENGINE_ELO_KEY));
+    return Number.isFinite(saved) && saved > 0 ? saved : null;
+  });
+  const [eloRange, setEloRange] = useState({ min: 1320, max: 3190 });
   const [multiPvs, setMultiPvs] = useState<MultiPvLine[]>([]);
   const [coachAdvice, setCoachAdvice] = useState('');
   const [isCoaching, setIsCoaching] = useState(false);
@@ -378,6 +385,11 @@ function App() {
   useEffect(() => {
     localStorage.setItem(ENGINE_DEPTH_KEY, String(engineDepth));
   }, [engineDepth]);
+
+  useEffect(() => {
+    localStorage.setItem(ENGINE_ELO_KEY, engineElo === null ? '' : String(engineElo));
+    engineRef.current?.setStrength(engineElo);
+  }, [engineElo, isEngineReady]);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -597,6 +609,9 @@ function App() {
     engineRef.current = new Engine((msg) => {
       if (msg.type === 'ready') {
         setIsEngineReady(true);
+        if (engineRef.current) {
+          setEloRange({ ...engineRef.current.eloRange });
+        }
       } else if (msg.type === 'bestmove') {
         if (msg.searchId !== activeSearchIdRef.current) {
           return;
@@ -1241,6 +1256,9 @@ function App() {
         moveHistory={moveHistory}
         engineDepth={engineDepth}
         setEngineDepth={setEngineDepth}
+        engineElo={engineElo}
+        setEngineElo={setEngineElo}
+        eloRange={eloRange}
         aiCoachEnabled={aiCoachEnabled}
         setAiCoachEnabled={setAiCoachEnabled}
         coachProps={{
