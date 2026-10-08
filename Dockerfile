@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 # Copy source and build
 COPY . .
@@ -21,7 +21,7 @@ WORKDIR /app
 
 # Install production dependencies for the server
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 # Copy compiled server and built frontend from build stage
 COPY --from=build /app/dist ./dist

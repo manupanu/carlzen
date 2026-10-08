@@ -31,21 +31,21 @@ const stateWith = (undoStack: unknown[]) => ({
 describe('sync keeps move reviews', () => {
   it('stores and returns a review with the move', () => {
     const review = { grade: 'blunder', lostPct: 45, bestSan: 'e4' };
-    store.writeSyncState('token-a', stateWith([{ fen: FEN, san: 'g4', review }]));
-    const back = store.readSyncState('token-a');
+    store.writeSyncState('token-a-0123456789', stateWith([{ fen: FEN, san: 'g4', review }]));
+    const back = store.readSyncState('token-a-0123456789');
     expect(back?.sessions[0].undoStack).toEqual([{ fen: FEN, san: 'g4', review }]);
   });
 
   it('drops a malformed review but keeps the move', () => {
     store.writeSyncState(
-      'token-b',
+      'token-b-0123456789',
       stateWith([
         { fen: FEN, san: 'e4', review: { grade: 'awful', lostPct: 3 } },
         { fen: FEN, san: 'e5', review: 'blunder' },
         { fen: FEN, san: 'Nf3' },
       ]),
     );
-    const moves = store.readSyncState('token-b')?.sessions[0].undoStack;
+    const moves = store.readSyncState('token-b-0123456789')?.sessions[0].undoStack;
     expect(moves).toEqual([
       { fen: FEN, san: 'e4' },
       { fen: FEN, san: 'e5' },
@@ -55,5 +55,9 @@ describe('sync keeps move reviews', () => {
 
   it('clamps out-of-range values', () => {
     expect(store.sanitizeReview({ grade: 'mistake', lostPct: 250 })).toEqual({ grade: 'mistake', lostPct: 100 });
+  });
+
+  it('rejects tokens shorter than 16 characters', () => {
+    expect(() => store.readSyncState('short')).toThrow(/at least 16/);
   });
 });

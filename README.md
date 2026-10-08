@@ -62,7 +62,7 @@
    ```
 
 5. **Optional: enable cross-device sync**
-   Enter the same sync token in the sidebar on each device. The backend stores your sessions in a local SQLite database and automatically syncs the newest saved state.
+   Enter the same sync token (at least 16 characters, e.g. a long random phrase) in the sidebar on each device. The backend stores your sessions in a local SQLite database and automatically syncs the newest saved state.
 
 5. **Build for production:**
    ```bash

@@ -101,3 +101,26 @@ export function gradeSymbol(grade: Grade): string {
   if (grade === 'blunder') return '??';
   return '';
 }
+
+export interface ReviewSummary {
+  /** Number of reviewed moves. */
+  moves: number;
+  counts: Record<Grade, number>;
+  /** 0..100, 100 minus the average win chance given away per reviewed move. */
+  accuracy: number;
+}
+
+/** Totals over the reviewed moves of a game, or null when none has been reviewed. */
+export function summarizeReviews(reviews: (MoveReview | undefined)[]): ReviewSummary | null {
+  const counts: Record<Grade, number> = { best: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
+  let moves = 0;
+  let lost = 0;
+  for (const review of reviews) {
+    if (!review) continue;
+    moves++;
+    counts[review.grade]++;
+    lost += review.lostPct;
+  }
+  if (moves === 0) return null;
+  return { moves, counts, accuracy: Math.round(100 - lost / moves) };
+}

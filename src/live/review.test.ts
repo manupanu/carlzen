@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js';
 import { describe, expect, it } from 'vitest';
-import { describeReview, grade, gradeSymbol, movePlayed, sanitizeReview, whiteShare, winShareLost } from './review';
+import { describeReview, grade, gradeSymbol, movePlayed, sanitizeReview, summarizeReviews, whiteShare, winShareLost } from './review';
 
 describe('movePlayed', () => {
   it('finds the move between two positions', () => {
@@ -118,5 +118,23 @@ describe('gradeSymbol', () => {
     expect(gradeSymbol('mistake')).toBe('?');
     expect(gradeSymbol('blunder')).toBe('??');
     expect(gradeSymbol('best')).toBe('');
+  });
+});
+
+describe('summarizeReviews', () => {
+  it('returns null without reviews', () => {
+    expect(summarizeReviews([undefined, undefined])).toBeNull();
+  });
+
+  it('counts grades and averages the lost win chance', () => {
+    const s = summarizeReviews([
+      { grade: 'best', lostPct: 0 },
+      undefined,
+      { grade: 'blunder', lostPct: 30 },
+      { grade: 'good', lostPct: 3 },
+    ])!;
+    expect(s.moves).toBe(3);
+    expect(s.counts).toMatchObject({ best: 1, good: 1, blunder: 1, mistake: 0 });
+    expect(s.accuracy).toBe(89);
   });
 });

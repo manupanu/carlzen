@@ -30,7 +30,8 @@ export function BoardControls({
         className="btn-secondary icon-btn"
         onClick={onUndo}
         disabled={!canUndo}
-        title="Undo (Ctrl+Z)"
+        title="Undo (Ctrl+Z or ←)"
+        aria-label="Undo"
       >
         <FaUndo />
       </button>
@@ -38,11 +39,12 @@ export function BoardControls({
         className="btn-secondary icon-btn"
         onClick={onRedo}
         disabled={!canRedo}
-        title="Redo (Ctrl+Y)"
+        title="Redo (Ctrl+Y or →)"
+        aria-label="Redo"
       >
         <FaRedo />
       </button>
-      <button className="btn-secondary icon-btn" onClick={onFlip} title="Flip Board">
+      <button className="btn-secondary icon-btn" onClick={onFlip} title="Flip board (F)" aria-label="Flip board">
         <FaSyncAlt />
       </button>
     </div>

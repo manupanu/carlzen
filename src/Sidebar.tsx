@@ -1,6 +1,7 @@
+import { useEffect, useRef } from 'react';
 import { FaChessBoard, FaCog, FaRobot, FaTrash } from 'react-icons/fa';
 import { CoachPanel } from './CoachPanel';
-import { gradeSymbol, type MoveReview } from './live/review';
+import { GRADE_TEXT, gradeSymbol, summarizeReviews, type Grade, type MoveReview } from './live/review';
 
 interface SidebarProps {
   fenInput: string;
@@ -41,6 +42,14 @@ export function Sidebar({
   coachProps,
   liveSlot,
 }: SidebarProps) {
+  const summary = summarizeReviews(moveReviews);
+  const historyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = historyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [moveHistory.length]);
+
   return (
     <div className="sidebar glass-panel">
       {/* Header */}
@@ -51,7 +60,7 @@ export function Sidebar({
         <div className="brand-block">
           <div className="brand-row">
             <h1>CarlZen</h1>
-            <button className="brand-settings-btn" onClick={onOpenSettings} title="Open settings">
+            <button className="brand-settings-btn" onClick={onOpenSettings} title="Open settings" aria-label="Open settings">
               <FaCog />
             </button>
           </div>
@@ -128,7 +137,7 @@ export function Sidebar({
       {moveHistory.length > 0 && (
         <div className="panel-content">
           <h3>Move History</h3>
-          <div className="move-history">
+          <div className="move-history" ref={historyRef}>
             {Array.from({ length: Math.ceil(moveHistory.length / 2) }, (_, i) => (
               <div key={i} className="move-pair">
                 <span className="move-number">{i + 1}.</span>
@@ -145,6 +154,15 @@ export function Sidebar({
               </div>
             ))}
           </div>
+          {summary && (
+            <p className="review-summary">
+              Accuracy {summary.accuracy}% over {summary.moves} reviewed {summary.moves === 1 ? 'move' : 'moves'}
+              {(['inaccuracy', 'mistake', 'blunder'] as Grade[])
+                .filter((g) => summary.counts[g] > 0)
+                .map((g) => ` · ${summary.counts[g]} ${GRADE_TEXT[g].toLowerCase()}${summary.counts[g] === 1 ? '' : 's'}`)
+                .join('')}
+            </p>
+          )}
         </div>
       )}
 

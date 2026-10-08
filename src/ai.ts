@@ -34,7 +34,7 @@ export const getCoachFeedback = async (
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch AI feedback: ${response.statusText}`);
+      throw new Error(await describeFailure(response));
     }
 
     if (!response.body) {
@@ -54,6 +54,22 @@ export const getCoachFeedback = async (
   } catch (error: unknown) {
     if (error instanceof Error && error.name === 'AbortError') return;
     console.error('Error fetching AI coaching:', error);
-    onChunk('Sorry, I couldn\'t analyze that move right now.');
+    onChunk(
+      error instanceof Error && error.message
+        ? `Sorry, I couldn't analyze that move right now (${error.message}).`
+        : 'Sorry, I couldn\'t analyze that move right now.'
+    );
   }
 };
+
+/** Turns a failed coach response into a short, readable reason. */
+async function describeFailure(response: Response): Promise<string> {
+  if (response.status === 429) return 'too many requests, try again in a minute';
+  try {
+    const body = (await response.json()) as { error?: unknown };
+    if (typeof body.error === 'string' && body.error) return body.error;
+  } catch {
+    // not JSON; fall through
+  }
+  return response.statusText || `HTTP ${response.status}`;
+}
