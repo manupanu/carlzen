@@ -101,7 +101,7 @@ export function CoachPanel({
             <p className="analysis-status-text">{analysisStatus || ' '}</p>
           </div>
           <div className="analysis-progress-block">
-            <div className="analysis-progress-track" role="progressbar" aria-label="Analysis progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(analysisProgress)}>
+            <div className="analysis-progress-track" role="progressbar" aria-label="Analysis progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={isAnalyzing ? Math.round(analysisProgress) : undefined}>
               <div className="analysis-progress-fill" style={{ width: `${analysisProgress}%` }} />
             </div>
             <div className="analysis-progress-label">{analysisProgressLabel || (isAnalyzing ? 'Analyzing…' : 'Waiting for analysis…')}</div>

@@ -16,7 +16,7 @@ interface SettingsSheetProps {
   onInstallApp: () => void;
 }
 
-const MIN_TOKEN_LENGTH = 16;
+export const MIN_TOKEN_LENGTH = 16;
 
 export function SettingsSheet({
   isOpen,

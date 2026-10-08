@@ -7,7 +7,7 @@ import { getCoachFeedback, type CoachLine } from './ai';
 import { pushSyncState, pullSyncState, type SyncState } from './sync';
 import { Sidebar } from './Sidebar';
 import { BoardControls } from './BoardControls';
-import { SettingsSheet } from './SettingsSheet';
+import { MIN_TOKEN_LENGTH, SettingsSheet } from './SettingsSheet';
 import { SessionTabs, type HistEntry, type Session } from './SessionTabs';
 import { applyLivePosition } from './live/applyPosition';
 import { describeReview, grade, movePlayed, winShareLost, type WhiteScore } from './live/review';
@@ -507,6 +507,10 @@ function App() {
       setSyncStatus('Sync disabled. Add a token to enable sync.');
       return;
     }
+    if (token.length < MIN_TOKEN_LENGTH) {
+      setSyncStatus(`Sync token must be at least ${MIN_TOKEN_LENGTH} characters.`);
+      return;
+    }
 
     if (!isOnline) {
       setSyncStatus('Offline. Changes stay local until you reconnect.');
@@ -545,8 +549,10 @@ function App() {
 
   useEffect(() => {
     const token = syncToken.trim();
-    if (!token) {
-      setSyncStatus('Sync disabled. Add a token to enable sync.');
+    if (token.length < MIN_TOKEN_LENGTH) {
+      if (!token) {
+        setSyncStatus('Sync disabled. Add a token to enable sync.');
+      }
       return;
     }
 
@@ -559,14 +565,14 @@ function App() {
   }, [syncToken, syncNow]);
 
   useEffect(() => {
-    if (isOnline && syncToken.trim()) {
+    if (isOnline && syncToken.trim().length >= MIN_TOKEN_LENGTH) {
       void syncNow();
     }
   }, [isOnline, syncNow, syncToken]);
 
   useEffect(() => {
     const token = syncToken.trim();
-    if (!token || documentUpdatedAt === 0) {
+    if (token.length < MIN_TOKEN_LENGTH || documentUpdatedAt === 0) {
       return;
     }
 
@@ -761,7 +767,7 @@ function App() {
     }
 
     const closing = sessions.find((session) => session.id === id);
-    if (closing && closing.undoStack.length > 0 && !window.confirm(`Close "${closing.name}"? Its moves will be lost.`)) {
+    if (closing && (closing.undoStack.length > 0 || closing.redoStack.length > 0) && !window.confirm(`Close "${closing.name}"? Its moves will be lost.`)) {
       return;
     }
 
@@ -853,7 +859,7 @@ function App() {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) {
+      if (isSettingsOpen || event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) {
         return;
       }
       if (event.key === 'ArrowLeft') {
@@ -869,10 +875,10 @@ function App() {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [handleUndo, handleRedo, handleFlip]);
+  }, [handleUndo, handleRedo, handleFlip, isSettingsOpen]);
 
   const handleReset = () => {
-    if (undoStack.length > 0 && !window.confirm('Reset this game to the starting position? Its move history will be lost.')) {
+    if ((undoStack.length > 0 || redoStack.length > 0) && !window.confirm('Reset this game to the starting position? Its move history will be lost.')) {
       return;
     }
     updateActiveSession((session) => ({

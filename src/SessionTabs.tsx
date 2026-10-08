@@ -39,10 +39,19 @@ export function SessionTabs({ sessions, activeId, onSelect, onAdd, onClose, onRe
           key={session.id}
           className={`tab ${session.id === activeId ? 'active' : ''}`}
           role="tab"
-          tabIndex={0}
+          tabIndex={session.id === activeId ? 0 : -1}
           aria-selected={session.id === activeId}
           onClick={() => onSelect(session.id)}
           onKeyDown={(e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+              e.preventDefault();
+              e.stopPropagation();
+              const currentIndex = sessions.findIndex((item) => item.id === session.id);
+              const nextIndex = (currentIndex + (e.key === 'ArrowRight' ? 1 : -1) + sessions.length) % sessions.length;
+              onSelect(sessions[nextIndex].id);
+              e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]')[nextIndex]?.focus();
+              return;
+            }
             if (e.target !== e.currentTarget) return;
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
